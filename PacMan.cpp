@@ -4,6 +4,7 @@
 #include <pthread.h>
 #include <signal.h>
 #include <time.h>
+#include <cerrno>
 #include "GrilleSDL.h"
 #include "Ressources.h"
 
@@ -39,9 +40,16 @@ typedef struct {
 
 S_CASE tab[NB_LIGNE][NB_COLONNE];
 
+pthread_mutex_t mutexTab;
+int dir; // Direction du PacMan
+
+void* threadPacMan(void *pParam);
 void DessineGrilleBase();
 void Attente(int milli);
 void setTab(int l, int c, int presence = VIDE, pthread_t tid = 0);
+void messageInfo(const char *nomThread, const char *message);
+void messageSucces(const char *nomThread, const char *message);
+void messageErreur(const char* nomThread, const char *message);
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 int main(int argc,char* argv[])
@@ -54,25 +62,42 @@ int main(int argc,char* argv[])
   srand((unsigned)time(NULL));
 
   // Ouverture de la fenetre graphique
-  printf("(MAIN %p) Ouverture de la fenetre graphique\n", pthread_self()); fflush(stdout);
+  
   if (OuvertureFenetreGraphique() < 0)
   {
-    printf("Erreur de OuvrirGrilleSDL\n");
+    messageErreur("MAIN", "Erreur de OuvrirGrilleSDL");
     fflush(stdout);
     exit(1);
   }
+  messageSucces("MAIN", "Ouverture de la fenetre graphique reussie"); 
 
+  // Creation de la grille de base
   DessineGrilleBase();
 
   // Exemple d'utilisation de GrilleSDL et Ressources --> code a supprimer
-  DessinePacMan(17, 7, GAUCHE);  // Attention !!! tab n'est pas modifie --> a vous de le faire !!!
-  DessineChiffre(14, 25, 9);
-  DessineFantome(5, 9, ROUGE, DROITE);
-  DessinePacGom(7, 4);
-  DessineSuperPacGom(9, 5);
-  DessineFantomeComestible(13, 15);
-  DessineBonus(5, 15);
+  // DessinePacMan(17, 7, GAUCHE);  // Attention !!! tab n'est pas modifie --> a vous de le faire !!!
+  // DessineChiffre(14, 25, 9);
+  // DessineFantome(5, 9, ROUGE, DROITE);
+  // DessinePacGom(7, 4);
+  // DessineSuperPacGom(9, 5);
+  // DessineFantomeComestible(13, 15);
+  // DessineBonus(5, 15);
+
+  // Initialisation de mutexTab
+  if (pthread_mutex_init(&mutexTab, NULL) != 0)
+  {
+    messageErreur("MAIN", "Erreur de phtread_mutex_init");
+    fflush(stdout);
+    exit(1);
+  }
+  messageSucces("MAIN", "Initialisation du mutex reussi");
+
+  pthread_t tidPacMan;
+
+  // Creation de threadPacman
+  pthread_create(&tidPacMan, NULL, threadPacMan, NULL);
   
+  // Boucle principale
   ok = 0;
   while(!ok)
   {
@@ -82,23 +107,99 @@ int main(int argc,char* argv[])
     {
       switch(event.touche)
       {
-        case 'q' : ok = 1; break;
-        case KEY_RIGHT : printf("Fleche droite !\n"); break;
-        case KEY_LEFT : printf("Fleche gauche !\n"); break;
+        case 'q' :
+          pthread_kill(tidPacMan, SIGKILL);
+          pthread_join(tidPacMan, NULL); // Note : emplacement non definitif
+          ok = 1;
+          break;
+
+        case KEY_UP :
+          printf("Fleche haut !\n");
+          dir = HAUT;
+          break;
+
+        case KEY_DOWN :
+          printf("Fleche bas !\n");
+          dir = BAS;
+          break;
+
+        case KEY_RIGHT :
+          printf("Fleche droite !\n");
+          dir = DROITE;
+          break;
+
+        case KEY_LEFT :
+          printf("Fleche gauche !\n");
+          dir = GAUCHE;
+          break;
       }
     }
   }
-  printf("Attente de 1500 millisecondes...\n");
+
+  messageInfo("MAIN", "Attente de 1500 millisecondes...");
   Attente(1500);
   // -------------------------------------------------------------------------
   
   // Fermeture de la fenetre
-  printf("(MAIN %p) Fermeture de la fenetre graphique...", pthread_self()); fflush(stdout);
+  messageInfo("MAIN", "Fermeture de la fenetre graphique...");
   FermetureFenetreGraphique();
   printf("OK\n");
   fflush(stdout);
 
   exit(0);
+}
+
+//*********************************************************************************************
+
+void* threadPacMan(void *pParam)
+{
+  int l = 15, c = 8;
+
+  dir = GAUCHE;
+
+  // Placer le PacMan au point de depart
+  setTab(l, c, PACMAN);
+
+  DessinePacMan(l, c, dir);
+
+  // Boucle principale
+  while (1)
+  {
+    Attente(300);
+
+    int nouveauL = l, nouveauC = c;
+
+    switch (dir)
+    {
+      case HAUT:
+        nouveauL--;
+        break;
+
+      case BAS:
+        nouveauL++;
+        break;
+
+      case GAUCHE:
+        nouveauC--;
+        break;
+
+      case DROITE:
+        nouveauC++;
+        break;
+    }
+
+    if (tab[nouveauL][nouveauC].presence != MUR)
+    {
+        setTab(l, c, VIDE);
+        EffaceCarre(l, c);
+        l = nouveauL;
+        c = nouveauC;
+
+        // Placer le PacMan
+        setTab(l, c, PACMAN);
+        DessinePacMan(l, c, dir);
+    }
+  }
 }
 
 //*********************************************************************************************
@@ -111,8 +212,10 @@ void Attente(int milli) {
 
 //*********************************************************************************************
 void setTab(int l, int c, int presence, pthread_t tid) {
+  pthread_mutex_lock(&mutexTab);
   tab[l][c].presence = presence;
   tab[l][c].tid = tid;
+  pthread_mutex_unlock(&mutexTab);
 }
 
 //*********************************************************************************************
@@ -143,14 +246,37 @@ void DessineGrilleBase() {
   for (int l = 0 ; l < NB_LIGNE ; l++)
     for (int c = 0 ; c < NB_COLONNE ; c++) {
       if (t[l][c] == VIDE) {
-        setTab(l,c);
-        EffaceCarre(l,c);
+        setTab(l, c);
+        EffaceCarre(l, c);
       }
       if (t[l][c] == MUR) {
-        setTab(l,c,MUR); 
-        DessineMur(l,c);
+        setTab(l, c, MUR); 
+        DessineMur(l, c);
       }
     }
 }
 
 //*********************************************************************************************
+
+void messageInfo(const char *nomThread, const char *message)
+{
+  printf("(%s %p) (INFO) %s\n", nomThread, pthread_self(), message);
+  fflush(stdout);
+}
+
+void messageSucces(const char *nomThread, const char *message)
+{
+  printf("\033[32m(%s %p) (SUCCES) %s\033[0m\n", nomThread, pthread_self(), message);
+  fflush(stdout);
+}
+
+void messageErreur(const char* nomThread, const char *message)
+{
+  fprintf(stderr, "\033[31m(%s %p) (ERREUR) %s\033[0m\n", nomThread, pthread_self(), message);
+
+  if (errno != 0)
+  {
+    perror("Message ");
+    errno = 0;
+  }
+}
