@@ -1,7 +1,7 @@
 .SILENT:
 
-GRILLESDL=GrilleSDL
-RESSOURCES=Ressources
+GRILLESDL = GrilleSDL
+RESSOURCES = Ressources
 
 CC = g++ -I$(GRILLESDL) -I$(RESSOURCES)
 OBJS = $(GRILLESDL)/GrilleSDL.o $(RESSOURCES)/Ressources.o

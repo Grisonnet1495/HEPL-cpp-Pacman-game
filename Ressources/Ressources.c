@@ -48,10 +48,10 @@
 void ChargementImages()
 {
   // Definition de l'image de fond
-  DessineImageFond("./images/fond.bmp");
+  DessineImageFond("./images/fond2.bmp");
 
   // Sprites
-  AjouteSprite(S_MUR,"./images/mur.bmp");
+  AjouteSprite(S_MUR,"./images/mur2.bmp");
 
   AjouteSprite(S_PACMAN_DROITE,"./images/pacman_droite.bmp");
   AjouteSprite(S_PACMAN_GAUCHE,"./images/pacman_gauche.bmp");

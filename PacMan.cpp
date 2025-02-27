@@ -54,7 +54,7 @@ int main(int argc,char* argv[])
   srand((unsigned)time(NULL));
 
   // Ouverture de la fenetre graphique
-  printf("(MAIN%p) Ouverture de la fenetre graphique\n",pthread_self()); fflush(stdout);
+  printf("(MAIN %p) Ouverture de la fenetre graphique\n", pthread_self()); fflush(stdout);
   if (OuvertureFenetreGraphique() < 0)
   {
     printf("Erreur de OuvrirGrilleSDL\n");
@@ -65,13 +65,13 @@ int main(int argc,char* argv[])
   DessineGrilleBase();
 
   // Exemple d'utilisation de GrilleSDL et Ressources --> code a supprimer
-  DessinePacMan(17,7,GAUCHE);  // Attention !!! tab n'est pas modifie --> a vous de le faire !!!
-  DessineChiffre(14,25,9);
-  DessineFantome(5,9,ROUGE,DROITE);
-  DessinePacGom(7,4);
-  DessineSuperPacGom(9,5);
-  DessineFantomeComestible(13,15);
-  DessineBonus(5,15);
+  DessinePacMan(17, 7, GAUCHE);  // Attention !!! tab n'est pas modifie --> a vous de le faire !!!
+  DessineChiffre(14, 25, 9);
+  DessineFantome(5, 9, ROUGE, DROITE);
+  DessinePacGom(7, 4);
+  DessineSuperPacGom(9, 5);
+  DessineFantomeComestible(13, 15);
+  DessineBonus(5, 15);
   
   ok = 0;
   while(!ok)
@@ -93,9 +93,10 @@ int main(int argc,char* argv[])
   // -------------------------------------------------------------------------
   
   // Fermeture de la fenetre
-  printf("(MAIN %p) Fermeture de la fenetre graphique...",pthread_self()); fflush(stdout);
+  printf("(MAIN %p) Fermeture de la fenetre graphique...", pthread_self()); fflush(stdout);
   FermetureFenetreGraphique();
-  printf("OK\n"); fflush(stdout);
+  printf("OK\n");
+  fflush(stdout);
 
   exit(0);
 }
@@ -105,7 +106,7 @@ void Attente(int milli) {
   struct timespec del;
   del.tv_sec = milli/1000;
   del.tv_nsec = (milli%1000)*1000000;
-  nanosleep(&del,NULL);
+  nanosleep(&del, NULL);
 }
 
 //*********************************************************************************************
@@ -139,8 +140,8 @@ void DessineGrilleBase() {
         {1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1},
         {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1}};
 
-  for (int l=0 ; l<NB_LIGNE ; l++)
-    for (int c=0 ; c<NB_COLONNE ; c++) {
+  for (int l = 0 ; l < NB_LIGNE ; l++)
+    for (int c = 0 ; c < NB_COLONNE ; c++) {
       if (t[l][c] == VIDE) {
         setTab(l,c);
         EffaceCarre(l,c);
