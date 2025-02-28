@@ -44,6 +44,8 @@ pthread_mutex_t mutexTab;
 int dir; // Direction du PacMan
 
 void* threadPacMan(void *pParam);
+void calculerCoord(int direction, int l, int c, int *nouveauL, int *nouveauC);
+void updatePacManPosition(int *l, int *c, int nouveauL, int nouveauC, int direction);
 void DessineGrilleBase();
 void Attente(int milli);
 void setTab(int l, int c, int presence = VIDE, pthread_t tid = 0);
@@ -153,53 +155,77 @@ int main(int argc,char* argv[])
 
 void* threadPacMan(void *pParam)
 {
-  int l = 15, c = 8;
+    int l = 15, c = 8;
+    int ancienneDir, nouveauL, nouveauC, nouvelleDir;
+    dir = GAUCHE;
 
-  dir = GAUCHE;
+    // Placer le PacMan au point de départ
+    setTab(l, c, PACMAN);
+    DessinePacMan(l, c, GAUCHE);
 
-  // Placer le PacMan au point de depart
-  setTab(l, c, PACMAN);
-
-  DessinePacMan(l, c, dir);
-
-  // Boucle principale
-  while (1)
-  {
-    Attente(300);
-
-    int nouveauL = l, nouveauC = c;
-
-    switch (dir)
+    // Boucled principale
+    while (1)
     {
-      case HAUT:
-        nouveauL--;
-        break;
+        Attente(300);
 
-      case BAS:
-        nouveauL++;
-        break;
+        // Lire la nouvelle direction
+        nouvelleDir = dir;
 
-      case GAUCHE:
-        nouveauC--;
-        break;
+        // Calculer la nouvelle position selon la nouvelle direction
+        calculerCoord(nouvelleDir, l, c, &nouveauL, &nouveauC);
 
-      case DROITE:
-        nouveauC++;
-        break;
+        // Si le prochain emplacement n'est pas un mur
+        if (tab[nouveauL][nouveauC].presence != MUR)
+        {
+            // On deplace le PacMan avec la nouvelle direction
+            updatePacManPosition(&l, &c, nouveauL, nouveauC, nouvelleDir);
+            ancienneDir = nouvelleDir;
+        }
+        else
+        {
+            // On tente de se deplacer avec l'ancienne direction
+            calculerCoord(ancienneDir, l, c, &nouveauL, &nouveauC);
+
+            // Si le prochain emplacement avec l'ancienne direction n'est pas un mur
+            if (tab[nouveauL][nouveauC].presence != MUR)
+            {
+                updatePacManPosition(&l, &c, nouveauL, nouveauC, ancienneDir);
+            }
+        }
     }
+}
 
-    if (tab[nouveauL][nouveauC].presence != MUR)
-    {
-        setTab(l, c, VIDE);
-        EffaceCarre(l, c);
-        l = nouveauL;
-        c = nouveauC;
-
-        // Placer le PacMan
-        setTab(l, c, PACMAN);
-        DessinePacMan(l, c, dir);
+void calculerCoord(int direction, int l, int c, int *nouveauL, int *nouveauC)
+{
+    *nouveauL = l;
+    *nouveauC = c;
+    switch (direction) {
+        case HAUT:
+            (*nouveauL)--;
+            break;
+        case BAS:
+            (*nouveauL)++;
+            break;
+        case GAUCHE:
+            (*nouveauC)--;
+            break;
+        case DROITE:
+            (*nouveauC)++;
+            break;
     }
-  }
+}
+
+// Fonction qui met à jour la position du PacMan et son affichage
+void updatePacManPosition(int *l, int *c, int nouveauL, int nouveauC, int direction)
+{
+    setTab(*l, *c, VIDE);
+    EffaceCarre(*l, *c);
+
+    *l = nouveauL;
+    *c = nouveauC;
+
+    setTab(*l, *c, PACMAN);
+    DessinePacMan(*l, *c, direction);
 }
 
 //*********************************************************************************************
