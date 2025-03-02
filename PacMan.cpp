@@ -42,7 +42,7 @@ S_CASE tab[NB_LIGNE][NB_COLONNE];
 
 
 pthread_t tidPacGom, tidPacMan, tidScore, tidEvent, tidBonus; // Note : tidEvent peut etre dans le main
-pthread_mutex_t mutexTab, mutexDelai, mutexNbPacGom, mutexScore;
+pthread_mutex_t mutexTab, mutexDelai, mutexNbPacGom, mutexScore, mutexLC;
 pthread_cond_t condNbPacGom, condScore;
 sigset_t maskPacMan; // Note : Est-ce bien que ce soit en global ?
 bool MAJScore = true;
@@ -100,7 +100,7 @@ int main(int argc,char* argv[])
   // DessineBonus(5, 15);
 
   // Initialisation de mutexTab et de mutexDelai
-  if (pthread_mutex_init(&mutexTab, NULL) != 0 || pthread_mutex_init(&mutexDelai, NULL) != 0 || pthread_mutex_init(&mutexNbPacGom, NULL) != 0 || pthread_mutex_init(&mutexScore, NULL) != 0)
+  if (pthread_mutex_init(&mutexTab, NULL) != 0 || pthread_mutex_init(&mutexDelai, NULL) != 0 || pthread_mutex_init(&mutexNbPacGom, NULL) != 0 || pthread_mutex_init(&mutexScore, NULL) != 0 || pthread_mutex_init(&mutexLC, NULL) != 0)
   {
     messageErreur("MAIN", "Erreur de phtread_mutex_init");
     fflush(stdout);
@@ -151,6 +151,8 @@ int main(int argc,char* argv[])
 void* threadPacGom(void *pParam)
 {
   int l, c, niveauJeu = 1;
+  int tabPosSuperPacGoms[4][2] = {{2, 1}, {2, 15}, {15, 1}, {15, 15}}; // Emplacement des Super PacGoms
+  int tabPosVide[3][2] = {{15, 8}, {8, 8}, {9, 8}}; // Case devant etre vides
 
   // Tant qu'on n'a pas atteint le niveau 10
   while (1) // Note : A modifier avec niveauJeu < 10
@@ -177,25 +179,47 @@ void* threadPacGom(void *pParam)
       }
     }
 
-    // Mettre une case vide à l'emplacement initial du Pac-Man et dans le nid de fantomes
-    setTab(15, 8, VIDE);
-    EffaceCarre(15, 8);
+    // Vider les cases devant etre vide
+    for (int i = 0; i < (sizeof(tabPosVide) / sizeof(tabPosVide[0])); i++)
+    {
+      l = tabPosVide[i][0];
+      c = tabPosVide[i][1];
 
-    setTab(8, 8, VIDE);
-    EffaceCarre(8, 8);
-    setTab(9, 8, VIDE);
-    EffaceCarre(9, 8);
-    nbPacGom -= 2;
+      if (tab[l][c].presence == PACGOM)
+      {
+        tab[l][c].presence = VIDE;
+        EffaceCarre(l, c);
+        nbPacGom--;
+      }
+    }
+
+    // setTab(15, 8, VIDE);
+    // EffaceCarre(15, 8);
+
+    // setTab(8, 8, VIDE);
+    // EffaceCarre(8, 8);
+    // setTab(9, 8, VIDE);
+    // EffaceCarre(9, 8);
+    // nbPacGom -= 2;
 
     // Ajouter les super Pac-Goms
-    setTab(2, 1, SUPERPACGOM);
-    DessineSuperPacGom(2, 1);
-    setTab(2, 15, SUPERPACGOM);
-    DessineSuperPacGom(2, 15);
-    setTab(15, 1, SUPERPACGOM);
-    DessineSuperPacGom(15, 1);
-    setTab(15, 15, SUPERPACGOM);
-    DessineSuperPacGom(15, 15);
+    for (int i = 0; i < (sizeof(tabPosSuperPacGoms) / sizeof(tabPosSuperPacGoms[0])); i++)
+    {
+      l = tabPosSuperPacGoms[i][0];
+      c = tabPosSuperPacGoms[i][1];
+
+      tab[l][c].presence = SUPERPACGOM;
+      DessineSuperPacGom(l,c);
+    }
+
+    // setTab(2, 1, SUPERPACGOM);
+    // DessineSuperPacGom(2, 1);
+    // setTab(2, 15, SUPERPACGOM);
+    // DessineSuperPacGom(2, 15);
+    // setTab(15, 1, SUPERPACGOM);
+    // DessineSuperPacGom(15, 1);
+    // setTab(15, 15, SUPERPACGOM);
+    // DessineSuperPacGom(15, 15);
     pthread_mutex_unlock(&mutexNbPacGom);
 
     pthread_mutex_lock(&mutexNbPacGom);
@@ -219,7 +243,7 @@ void* threadPacGom(void *pParam)
 void augmenterNiveau(int *niveau)
 {
   // Augmenter le niveau du jeu de 1
-  niveau++;
+  (*niveau)++;
 
   // Augmenter la vitess du Pac-Man par 2
   pthread_mutex_lock(&mutexDelai);
@@ -227,6 +251,8 @@ void augmenterNiveau(int *niveau)
   pthread_mutex_unlock(&mutexDelai);
 
   changerPositionPacMan(LENTREE, CENTREE, GAUCHE, maskPacMan); // Note : La position est changee trop tard
+  printf("Nouvelle position Pac-Man : %d, %d\n", L, C);
+  fflush(stdout);
 }
 
 // *********************** Gestion du Pac-Man ***********************
@@ -305,6 +331,8 @@ void* threadPacMan(void *pParam)
 
 void calculerCoord(int direction, int *nouveauL, int *nouveauC)
 {
+  printf("Calculer coordonnees\n");
+  fflush(stdout);
   *nouveauL = L;
   *nouveauC = C;
 
@@ -367,16 +395,20 @@ void augmenterScore(int augmentation)
 // Sert a mettre à jour la position du PacMan et son affichage
 void changerPositionPacMan(int nouveauL, int nouveauC, int direction, sigset_t mask)
 {
-    sigprocmask(SIG_SETMASK, &mask, NULL);
-    setTab(L, C, VIDE);
-    EffaceCarre(L, C);
+  sigprocmask(SIG_SETMASK, &mask, NULL);
+  setTab(L, C, VIDE);
+  EffaceCarre(L, C);
+  printf("Carre efface : %d, %d\n", L, C);
+  fflush(stdout);
 
-    L = nouveauL;
-    C = nouveauC;
+  L = nouveauL;
+  C = nouveauC;
 
-    setTab(L, C, PACMAN);
-    DessinePacMan(L, C, direction);
-    sigprocmask(SIG_UNBLOCK, &mask, NULL);
+  setTab(L, C, PACMAN);
+  DessinePacMan(L, C, direction);
+  sigprocmask(SIG_UNBLOCK, &mask, NULL);
+  printf("Position Pac-Man : %d, %d\n", L, C);
+  fflush(stdout);
 }
 
 // Change la direction du Pac-Man a la reception d'un signal
