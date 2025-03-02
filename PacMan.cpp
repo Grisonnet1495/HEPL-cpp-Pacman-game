@@ -42,7 +42,7 @@ S_CASE tab[NB_LIGNE][NB_COLONNE];
 
 
 pthread_t tidPacGom, tidPacMan, tidScore, tidEvent, tidBonus; // Note : tidEvent peut etre dans le main
-pthread_mutex_t mutexTab, mutexDelai, mutexNbPacGom, mutexScore, mutexLC;
+pthread_mutex_t mutexTab, mutexDelai, mutexNbPacGom, mutexScore, mutexLC; // Note : mutexLC utile ?
 pthread_cond_t condNbPacGom, condScore;
 sigset_t maskPacMan; // Note : Est-ce bien que ce soit en global ?
 bool MAJScore = true;
@@ -78,7 +78,6 @@ int main(int argc,char* argv[])
   srand((unsigned)time(NULL));
 
   // Ouverture de la fenetre graphique
-  
   if (OuvertureFenetreGraphique() < 0)
   {
     messageErreur("MAIN", "Erreur de OuvrirGrilleSDL");
@@ -88,7 +87,7 @@ int main(int argc,char* argv[])
   messageSucces("MAIN", "Ouverture de la fenetre graphique reussie"); 
 
   // Creation de la grille de base
-  DessineGrilleBase();
+  DessineGrilleBase(); // Pas besoin du mutex, car aucun autre thread n'est lance
 
   // Exemple d'utilisation de GrilleSDL et Ressources --> code a supprimer
   // DessinePacMan(17, 7, GAUCHE);  // Attention !!! tab n'est pas modifie --> a vous de le faire !!!
@@ -103,7 +102,6 @@ int main(int argc,char* argv[])
   if (pthread_mutex_init(&mutexTab, NULL) != 0 || pthread_mutex_init(&mutexDelai, NULL) != 0 || pthread_mutex_init(&mutexNbPacGom, NULL) != 0 || pthread_mutex_init(&mutexScore, NULL) != 0 || pthread_mutex_init(&mutexLC, NULL) != 0)
   {
     messageErreur("MAIN", "Erreur de phtread_mutex_init");
-    fflush(stdout);
     exit(1);
   }
   messageSucces("MAIN", "Initialisation de mutexTab, mutexDelai, mutexNbPacGom et mutexScore reussi");
@@ -123,16 +121,16 @@ int main(int argc,char* argv[])
 
   // Creation de threadPacGom, threadPacman, threadScore et threadEvent
   pthread_create(&tidPacGom, NULL, threadPacGom, NULL);
-  pthread_create(&tidPacMan, NULL, threadPacMan, NULL);
   pthread_create(&tidScore, NULL, threadScore, NULL);
-  pthread_create(&tidEvent, NULL, threadEvent, NULL); // On le met en dernier pour empecher les comportements inattendus
+  pthread_create(&tidEvent, NULL, threadEvent, NULL);
+  pthread_create(&tidPacMan, NULL, threadPacMan, NULL);
   pthread_create(&tidBonus, NULL, threadBonus, NULL);
   
   pthread_join(tidPacMan, NULL);
   pthread_join(tidPacGom, NULL);
   pthread_join(tidScore, NULL);
-  pthread_join(tidEvent, NULL);
   pthread_join(tidBonus, NULL);
+  pthread_join(tidEvent, NULL);
 
   messageInfo("MAIN", "Attente de 1500 millisecondes...");
   Attente(1500);
@@ -151,24 +149,24 @@ int main(int argc,char* argv[])
 void* threadPacGom(void *pParam)
 {
   int l, c, niveauJeu = 1;
-  int tabPosSuperPacGoms[4][2] = {{2, 1}, {2, 15}, {15, 1}, {15, 15}}; // Emplacement des Super PacGoms
-  int tabPosVide[3][2] = {{15, 8}, {8, 8}, {9, 8}}; // Case devant etre vides
+  int tabPosSuperPacGoms[4][2] = {{2, 1}, {2, 15}, {15, 1}, {15, 15}}; // Emplacement des Super Pac-Goms
+  int tabPosVide[3][2] = {{15, 8}, {8, 8}, {9, 8}}; // Cases devant etre vides
 
   // Tant qu'on n'a pas atteint le niveau 10
-  while (1) // Note : A modifier avec niveauJeu < 10
+  while (niveauJeu < 10)
   {
-    // Note : Mettre a jour la position du Pac-Man
-
     // Afficher le niveau actuel
     DessineChiffre(14, 22, niveauJeu);
 
+    pthread_mutex_lock(&mutexTab);
+    pthread_mutex_lock(&mutexNbPacGom);
+
     nbPacGom = 0;
     
-    pthread_mutex_lock(&mutexNbPacGom);
     // Remplir les cases vides avec des Pac-Goms
-    for (l = 0; l < NB_LIGNE; l++)
+    for (l = 0; l < /*NB_LIGNE*/5; l++)
     {
-      for (c = 0; c < NB_COLONNE; c++)
+      for (c = 0; c < /*NB_COLONNE*/5; c++)
       {
         if (tab[l][c].presence == 0)
         {
@@ -187,20 +185,11 @@ void* threadPacGom(void *pParam)
 
       if (tab[l][c].presence == PACGOM)
       {
-        tab[l][c].presence = VIDE;
+        setTab(l, c, VIDE);
         EffaceCarre(l, c);
         nbPacGom--;
       }
     }
-
-    // setTab(15, 8, VIDE);
-    // EffaceCarre(15, 8);
-
-    // setTab(8, 8, VIDE);
-    // EffaceCarre(8, 8);
-    // setTab(9, 8, VIDE);
-    // EffaceCarre(9, 8);
-    // nbPacGom -= 2;
 
     // Ajouter les super Pac-Goms
     for (int i = 0; i < (sizeof(tabPosSuperPacGoms) / sizeof(tabPosSuperPacGoms[0])); i++)
@@ -208,21 +197,22 @@ void* threadPacGom(void *pParam)
       l = tabPosSuperPacGoms[i][0];
       c = tabPosSuperPacGoms[i][1];
 
-      tab[l][c].presence = SUPERPACGOM;
+      if (tab[l][c].presence != PACGOM) // Si on n'a pas rempli toute les cases vides avec des Pac-Goms
+      {
+        nbPacGom++;
+      }
+
+      setTab(l, c, SUPERPACGOM);
       DessineSuperPacGom(l,c);
     }
 
-    // setTab(2, 1, SUPERPACGOM);
-    // DessineSuperPacGom(2, 1);
-    // setTab(2, 15, SUPERPACGOM);
-    // DessineSuperPacGom(2, 15);
-    // setTab(15, 1, SUPERPACGOM);
-    // DessineSuperPacGom(15, 1);
-    // setTab(15, 15, SUPERPACGOM);
-    // DessineSuperPacGom(15, 15);
-    pthread_mutex_unlock(&mutexNbPacGom);
+    pthread_mutex_unlock(&mutexTab);
 
-    pthread_mutex_lock(&mutexNbPacGom);
+    // Affiche le nombre total de Pac-Goms
+    DessineChiffre(12, 22, nbPacGom / 100);
+    DessineChiffre(12, 23, (nbPacGom % 100) / 10);
+    DessineChiffre(12, 24, nbPacGom % 10);
+
     // Tant qu'il y a des Pac-Goms
     while (nbPacGom > 0)
     {
@@ -234,7 +224,9 @@ void* threadPacGom(void *pParam)
     }
     pthread_mutex_unlock(&mutexNbPacGom);
 
+    pthread_mutex_lock(&mutexTab);
     augmenterNiveau(&niveauJeu);
+    pthread_mutex_unlock(&mutexTab);
   }
   
   pthread_exit(NULL);
@@ -250,9 +242,7 @@ void augmenterNiveau(int *niveau)
   delai /= 2;
   pthread_mutex_unlock(&mutexDelai);
 
-  changerPositionPacMan(LENTREE, CENTREE, GAUCHE, maskPacMan); // Note : La position est changee trop tard
-  printf("Nouvelle position Pac-Man : %d, %d\n", L, C);
-  fflush(stdout);
+  changerPositionPacMan(LENTREE, CENTREE, GAUCHE, maskPacMan);
 }
 
 // *********************** Gestion du Pac-Man ***********************
@@ -283,9 +273,11 @@ void* threadPacMan(void *pParam)
     messageErreur("THREAD", "Erreur de sigaction. Des signaux pourraient ne pas fonctionner.\n");
   }
 
+  pthread_mutex_lock(&mutexTab);
   // Placer le Pac-Man au point de départ
   setTab(L, C, PACMAN);
   DessinePacMan(L, C, GAUCHE);
+  pthread_mutex_unlock(&mutexTab);
 
   // Boucled principale
   while (1)
@@ -300,6 +292,7 @@ void* threadPacMan(void *pParam)
     // Lire la nouvelle direction
     nouvelleDir = dir;
 
+    pthread_mutex_lock(&mutexTab);
     // Calculer la nouvelle position selon la nouvelle direction
     calculerCoord(nouvelleDir, &nouveauL, &nouveauC);
 
@@ -326,13 +319,12 @@ void* threadPacMan(void *pParam)
         changerPositionPacMan(nouveauL, nouveauC, ancienneDir, maskPacMan);
       }
     }
+    pthread_mutex_unlock(&mutexTab);
   }
 }
 
 void calculerCoord(int direction, int *nouveauL, int *nouveauC)
 {
-  printf("Calculer coordonnees\n");
-  fflush(stdout);
   *nouveauL = L;
   *nouveauC = C;
 
@@ -398,8 +390,6 @@ void changerPositionPacMan(int nouveauL, int nouveauC, int direction, sigset_t m
   sigprocmask(SIG_SETMASK, &mask, NULL);
   setTab(L, C, VIDE);
   EffaceCarre(L, C);
-  printf("Carre efface : %d, %d\n", L, C);
-  fflush(stdout);
 
   L = nouveauL;
   C = nouveauC;
@@ -407,8 +397,6 @@ void changerPositionPacMan(int nouveauL, int nouveauC, int direction, sigset_t m
   setTab(L, C, PACMAN);
   DessinePacMan(L, C, direction);
   sigprocmask(SIG_UNBLOCK, &mask, NULL);
-  printf("Position Pac-Man : %d, %d\n", L, C);
-  fflush(stdout);
 }
 
 // Change la direction du Pac-Man a la reception d'un signal
@@ -483,11 +471,9 @@ void* threadBonus(void *pParam)
       {
         if (tab[l][c].presence == VIDE)
         {
-          tab[l][c].presence = BONUS;
+          setTab(l, c, BONUS);
           DessineBonus(l, c);
           bonusPlace = true;
-
-          printf("Place : %d, %d\n", l, c);
         }
       }
     }
@@ -502,11 +488,9 @@ void* threadBonus(void *pParam)
         {
           if (tab[l][c].presence == VIDE)
           {
-            tab[l][c].presence = BONUS;
+            setTab(l, c, BONUS);
             DessineBonus(l, c);
             bonusPlace = true;
-
-            printf("Place : %d, %d\n", l, c);
           }
         }
       }
@@ -525,9 +509,8 @@ void* threadBonus(void *pParam)
     if (tab[l][c].presence == BONUS)
     {
       // On efface la Bonus
-      tab[l][c].presence = VIDE;
+      setTab(l, c, VIDE);
       EffaceCarre(l, c);
-      printf("Efface : %d, %d\n", l, c);
     }
     pthread_mutex_unlock(&mutexTab);
   }
@@ -603,10 +586,8 @@ void Attente(int milli) {
 // *********************** Fonction pour placer les composants dans la table ***********************
 
 void setTab(int l, int c, int presence, pthread_t tid) {
-  pthread_mutex_lock(&mutexTab);
   tab[l][c].presence = presence;
   tab[l][c].tid = tid;
-  pthread_mutex_unlock(&mutexTab);
 }
 
 // *********************** Fonction pour initialiser la table ***********************
@@ -665,6 +646,7 @@ void messageSucces(const char *nomThread, const char *message)
 void messageErreur(const char* nomThread, const char *message)
 {
   fprintf(stderr, "\033[31m(%s %p) (ERREUR) %s\033[0m\n", nomThread, pthread_self(), message);
+  fflush(stderr);
 
   if (errno != 0)
   {
