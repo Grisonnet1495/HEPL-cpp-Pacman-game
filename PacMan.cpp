@@ -41,17 +41,21 @@ typedef struct {
 S_CASE tab[NB_LIGNE][NB_COLONNE];
 
 
-pthread_t tidPacGom, tidPacMan, tidEvent; // Note : tidEvent peut etre dans le main
-pthread_mutex_t mutexTab, mutexDelai, mutexNbPacGom;
-pthread_cond_t condNbPacGom;
-int dir, ancienneDir, nbPacGom, delai = 300, score = 0; // Direction du PacMan
+pthread_t tidPacGom, tidPacMan, tidScore, tidEvent; // Note : tidEvent peut etre dans le main
+pthread_mutex_t mutexTab, mutexDelai, mutexNbPacGom, mutexScore;
+pthread_cond_t condNbPacGom, condScore;
+bool MAJScore = true;
+int dir, ancienneDir; // Direction du PacMan
+int nbPacGom, delai = 300, score = 0;
 
 void* threadPacGom(void *pParam);
 void* threadPacMan(void *pParam);
 void calculerCoord(int direction, int l, int c, int *nouveauL, int *nouveauC);
 void detecterPresenceProchaineCase(int l, int c);
+void augmenterScore(int augmentation);
 void changerPositionPacman(int *l, int *c, int nouveauL, int nouveauC, int direction, sigset_t *mask);
 void handlerSignaux(int signal);
+void* threadScore(void *pParam);
 void* threadEvent(void *pParam);
 void DessineGrilleBase();
 void Attente(int milli);
@@ -92,16 +96,17 @@ int main(int argc,char* argv[])
   // DessineBonus(5, 15);
 
   // Initialisation de mutexTab et de mutexDelai
-  if (pthread_mutex_init(&mutexTab, NULL) != 0 || pthread_mutex_init(&mutexDelai, NULL) != 0 || pthread_mutex_init(&mutexNbPacGom, NULL) != 0)
+  if (pthread_mutex_init(&mutexTab, NULL) != 0 || pthread_mutex_init(&mutexDelai, NULL) != 0 || pthread_mutex_init(&mutexNbPacGom, NULL) != 0 || pthread_mutex_init(&mutexScore, NULL) != 0)
   {
     messageErreur("MAIN", "Erreur de phtread_mutex_init");
     fflush(stdout);
     exit(1);
   }
-  messageSucces("MAIN", "Initialisation de mutexTab, mutexDelai et mutexNbPacGom reussi");
+  messageSucces("MAIN", "Initialisation de mutexTab, mutexDelai, mutexNbPacGom et mutexScore reussi");
 
-  // Initialisation de mutexNbPacGom de la variable de condition condNbPacGom
+  // Initialisation des variables de condition condNbPacGom et condScore
   pthread_cond_init(&condNbPacGom, NULL);
+  pthread_cond_init(&condScore, NULL);
 
   // Masquage des signaux SIGINT, SIGHUP, SIGUSR1 et SIGUSR2
   sigset_t mask;
@@ -112,13 +117,15 @@ int main(int argc,char* argv[])
   sigaddset(&mask, SIGUSR2);
   sigprocmask(SIG_SETMASK, &mask, NULL);
 
-  // Creation de threadPacman
+  // Creation de threadPacGom, threadPacman, threadScore et threadEvent
   pthread_create(&tidPacGom, NULL, threadPacGom, NULL);
   pthread_create(&tidPacMan, NULL, threadPacMan, NULL);
-  pthread_create(&tidEvent, NULL, threadEvent, NULL);
+  pthread_create(&tidScore, NULL, threadScore, NULL);
+  pthread_create(&tidEvent, NULL, threadEvent, NULL); // On le met en dernier pour empecher les comportements inattendus
   
   pthread_join(tidPacMan, NULL);
   pthread_join(tidPacGom, NULL);
+  pthread_join(tidScore, NULL);
   pthread_join(tidEvent, NULL);
 
   messageInfo("MAIN", "Attente de 1500 millisecondes...");
@@ -246,7 +253,9 @@ void* threadPacMan(void *pParam)
   {
     // Attendre 300 millisecondes et puis la reception d'un signal
     sigprocmask(SIG_SETMASK, &mask, NULL);
-    Attente(delai); // Note : besoin de verifier le mutex ?
+    pthread_mutex_lock(&mutexDelai);
+    Attente(delai);
+    pthread_mutex_unlock(&mutexDelai);
     sigprocmask(SIG_UNBLOCK, &mask, NULL);
 
     // Lire la nouvelle direction
@@ -309,26 +318,26 @@ void detecterPresenceProchaineCase(int l, int c)
 {
   if (tab[l][c].presence == PACGOM)
   {
-    pthread_mutex_lock(&mutexNbPacGom);
-    nbPacGom--;
-    pthread_mutex_unlock(&mutexNbPacGom);
-    pthread_cond_signal(&condNbPacGom);
-
-    score++; // Note : Ajouter un mutex ?
-    printf("Score : %d\n", score);
-    // Note : Reveiller le threadScore (etape 4)
+    augmenterScore(1);
   }
   else if (tab[l][c].presence == SUPERPACGOM)
   {
-    pthread_mutex_lock(&mutexNbPacGom);
-    nbPacGom--;
-    pthread_mutex_unlock(&mutexNbPacGom);
-    pthread_cond_signal(&condNbPacGom);
-
-    score += 5; // Note : Ajouter un mutex ?
-    printf("Score : %d\n", score);
-    // Note : Reveiller le threadScore (etape 4)
+    augmenterScore(5);
   }
+}
+
+void augmenterScore(int augmentation)
+{
+  pthread_mutex_lock(&mutexNbPacGom);
+  nbPacGom--;
+  pthread_mutex_unlock(&mutexNbPacGom);
+  pthread_cond_signal(&condNbPacGom);
+
+  pthread_mutex_lock(&mutexScore); // Note : oblige ?
+  score += augmentation;
+  MAJScore = true; // Indiquer que le score a ete mis a jour
+  pthread_mutex_unlock(&mutexScore);
+  pthread_cond_signal(&condScore);
 }
 
 // Sert a mettre à jour la position du PacMan et son affichage
@@ -366,6 +375,30 @@ void handlerSignaux(int signal)
     case SIGUSR2:
       dir = BAS;
       break;
+  }
+}
+
+// *********************** Gestion du score ***********************
+
+void* threadScore(void *pParam)
+{
+  while (1)
+  {
+    pthread_mutex_lock(&mutexScore);
+    // Tant qu'il y a des Pac-Goms
+    while (MAJScore == false)
+    {
+      pthread_cond_wait(&condScore, &mutexScore); // Attendre un changement du score
+    }
+    pthread_mutex_unlock(&mutexScore);
+
+    // Mettre a jour le score
+    DessineChiffre(16, 22, score / 1000);
+    DessineChiffre(16, 23, (score % 1000) / 100);
+    DessineChiffre(16, 24, (score % 100) / 10);
+    DessineChiffre(16, 25, score % 10);
+
+    MAJScore = false;
   }
 }
 
@@ -414,11 +447,15 @@ void* threadEvent(void *pParam)
     }
   }
 
-  pthread_cancel(tidPacMan);
-
-  printf("Ici\n");
-
-  pthread_cancel(tidPacGom);
+  // Annulation de threadPacMan, threadPacGom et threadScore
+  if (pthread_cancel(tidPacMan) != 0 || pthread_cancel(tidPacGom) != 0 || pthread_cancel(tidScore))
+  {
+    messageErreur("EVENT", "Tous les threads n'ont pas pu etre annule");
+  }
+  else
+  {
+    messageSucces("EVENT", "Tous les threads ont ete annule");
+  }
 
   pthread_exit(NULL);
 }
