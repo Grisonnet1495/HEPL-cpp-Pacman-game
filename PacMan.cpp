@@ -41,25 +41,30 @@ typedef struct {
 S_CASE tab[NB_LIGNE][NB_COLONNE];
 
 
-pthread_t tidPacGom, tidPacMan, tidScore, tidEvent, tidBonus; // Note : tidEvent peut etre dans le main
-pthread_mutex_t mutexTab, mutexDelai, mutexNbPacGom, mutexScore, mutexLC; // Note : mutexLC utile ?
-pthread_cond_t condNbPacGom, condScore;
+pthread_t tidPacGom, tidPacMan, tidScore, tidEvent, tidBonus, tidCompteurFantomes, tidFantomes[8]; // Note : tidEvent peut etre dans le main
+pthread_mutex_t mutexTab, mutexDelai, mutexNbPacGom, mutexScore, mutexLC, mutexNbFantomes; // Note : mutexLC utile ?
+pthread_cond_t condNbPacGom, condScore, condNbFantomes;
+pthread_key_t cle;
 sigset_t maskPacMan; // Note : Est-ce bien que ce soit en global ?
 bool MAJScore = true;
-int L, C, dir, ancienneDir; // Position et direction du PacMan
+int L, C, dir; // Position et direction du PacMan
 int nbPacGom, delai = 300, score = 0;
+int nbRouge, nbVert, nbMauve, nbOrange;
 
 void* threadPacGom(void *pParam);
 void augmenterNiveau(int *niveau);
 void* threadPacMan(void *pParam);
 void calculerCoord(int direction, int *nouveauL, int *nouveauC);
-void detecterPresenceProchaineCase(int l, int c);
+void detecterPresenceProchaineCasePacMan(int l, int c);
 void diminuerNbPacGom();
 void augmenterScore(int augmentation);
 void changerPositionPacMan(int nouveauL, int nouveauC, int direction, sigset_t mask);
 void handlerSignaux(int signal);
 void* threadScore(void *pParam);
 void* threadBonus(void *pParam);
+void* threadCompteurFantomes(void *pParam);
+void cleanupStructFantomes(void *pStructFantomes);
+void* threadFantome(void *pParam);
 void* threadEvent(void *pParam);
 void DessineGrilleBase();
 void Attente(int milli);
@@ -99,16 +104,17 @@ int main(int argc,char* argv[])
   // DessineBonus(5, 15);
 
   // Initialisation de mutexTab et de mutexDelai
-  if (pthread_mutex_init(&mutexTab, NULL) != 0 || pthread_mutex_init(&mutexDelai, NULL) != 0 || pthread_mutex_init(&mutexNbPacGom, NULL) != 0 || pthread_mutex_init(&mutexScore, NULL) != 0 || pthread_mutex_init(&mutexLC, NULL) != 0)
+  if (pthread_mutex_init(&mutexTab, NULL) != 0 || pthread_mutex_init(&mutexDelai, NULL) != 0 || pthread_mutex_init(&mutexNbPacGom, NULL) != 0 || pthread_mutex_init(&mutexScore, NULL) != 0 || pthread_mutex_init(&mutexLC, NULL) != 0 || pthread_mutex_init(&mutexNbFantomes, NULL) != 0)
   {
     messageErreur("MAIN", "Erreur de phtread_mutex_init");
     exit(1);
   }
-  messageSucces("MAIN", "Initialisation de mutexTab, mutexDelai, mutexNbPacGom et mutexScore reussi");
+  messageSucces("MAIN", "Initialisation de mutexTab, mutexDelai, mutexNbPacGom, mutexScore et mutexNbFantomes reussi");
 
-  // Initialisation des variables de condition condNbPacGom et condScore
+  // Initialisation des variables de condition condNbPacGom, condScore et condNbFantomes
   pthread_cond_init(&condNbPacGom, NULL);
   pthread_cond_init(&condScore, NULL);
+  pthread_cond_init(&condNbFantomes, NULL);
 
   // Masquage des signaux SIGINT, SIGHUP, SIGUSR1 et SIGUSR2
   sigset_t mask;
@@ -125,12 +131,14 @@ int main(int argc,char* argv[])
   pthread_create(&tidEvent, NULL, threadEvent, NULL);
   pthread_create(&tidPacMan, NULL, threadPacMan, NULL);
   pthread_create(&tidBonus, NULL, threadBonus, NULL);
+  pthread_create(&tidCompteurFantomes, NULL, threadCompteurFantomes, NULL);
   
   pthread_join(tidPacMan, NULL);
   pthread_join(tidPacGom, NULL);
   pthread_join(tidScore, NULL);
   pthread_join(tidBonus, NULL);
   pthread_join(tidEvent, NULL);
+  pthread_join(tidCompteurFantomes, NULL);
 
   messageInfo("MAIN", "Attente de 1500 millisecondes...");
   Attente(1500);
@@ -228,6 +236,8 @@ void* threadPacGom(void *pParam)
     augmenterNiveau(&niveauJeu);
     pthread_mutex_unlock(&mutexTab);
   }
+
+  // Note : Afficher le fait que le joueur a gagne
   
   pthread_exit(NULL);
 }
@@ -249,7 +259,8 @@ void augmenterNiveau(int *niveau)
 
 void* threadPacMan(void *pParam)
 {
-  int nouveauL, nouveauC, nouvelleDir;
+  int nouveauL, nouveauC, nouvelleDir, ancienneDir;
+  int delaiLocal;
   dir = GAUCHE;
   L = LENTREE;
   C = CENTREE;
@@ -270,7 +281,7 @@ void* threadPacMan(void *pParam)
 
   if (sigaction(SIGINT, &sa, NULL) == -1 || sigaction(SIGHUP, &sa, NULL) == -1 || sigaction(SIGUSR1, &sa, NULL) == -1 || sigaction(SIGUSR2, &sa, NULL) == -1)
   {
-    messageErreur("THREAD", "Erreur de sigaction. Des signaux pourraient ne pas fonctionner.\n");
+    messageErreur("THREADPACMAN", "Erreur de sigaction. Des signaux pourraient ne pas fonctionner.\n");
   }
 
   pthread_mutex_lock(&mutexTab);
@@ -282,11 +293,14 @@ void* threadPacMan(void *pParam)
   // Boucled principale
   while (1)
   {
+    // Recuperer la valeur de la variable delai
+    pthread_mutex_lock(&mutexDelai);
+    delaiLocal = delai; // Note : On la recupere pour ne pas bloquer tout le monde pendant qu'on attend
+    pthread_mutex_unlock(&mutexDelai);
+
     // Attendre 300 millisecondes et puis la reception d'un signal
     sigprocmask(SIG_SETMASK, &maskPacMan, NULL);
-    pthread_mutex_lock(&mutexDelai);
-    Attente(delai);
-    pthread_mutex_unlock(&mutexDelai);
+    Attente(delaiLocal);
     sigprocmask(SIG_UNBLOCK, &maskPacMan, NULL);
 
     // Lire la nouvelle direction
@@ -347,7 +361,7 @@ void calculerCoord(int direction, int *nouveauL, int *nouveauC)
   }
 }
 
-void detecterPresenceProchaineCase(int l, int c)
+void detecterPresenceProchaineCasePacMan(int l, int c)
 {
   switch (tab[l][c].presence)
   {
@@ -516,6 +530,243 @@ void* threadBonus(void *pParam)
   }
 }
 
+// *********************** Gestion des Fantomes ***********************
+
+// void* threadCompteurFantomes(void *pParam)
+// {
+//   S_FANTOME *structFantomes[8];
+
+//   int i;
+  
+//   // Allouer la memoire pour les structures Fantome
+//   for (i = 0; i < 8; i++)
+//   {
+//     structFantomes[i] = malloc(sizeof(S_FANTOME));
+//     // *structFantomes[i] = (S_FANTOME *)malloc(sizeof(S_FANTOME));
+//     // Ajouter pour chaque allocation une fonction de liberation
+//     pthread_cleanup_push(free, structFantomes[i]);
+//   }
+
+//   pthread_key_create(&cle, free);
+
+//   // Boucle principale
+//   while (1)
+//   {
+//     pthread_mutex_lock(&mutexNbFantomes);
+//     // Tant qu'il y a tous les Fantomes
+//     while (nbRouge == 2 && nbVert == 2 && nbMauve == 2 && nbOrange == 2)
+//     {
+//       pthread_cond_wait(&condNbFantomes, &mutexNbFantomes); // Attendre un changement du score
+//     }
+//     pthread_mutex_unlock(&mutexNbFantomes);
+
+//     // S'il manque un ou des Fantomes rouges
+//     // if (nbRouge == 0)
+//     // {
+//     //   i = 0;
+//     // }
+//     // else if (NbRouge == 1)
+//     // {
+//     //   i = 1;
+//     // }
+
+//     i = 0; // Note : A changer
+
+//     structFantomes[i]->L = 9;
+//     structFantomes[i]->C = 8;
+//     structFantomes[i]->couleur = ROUGE;
+//     structFantomes[i]->cache = 0;
+
+//     pthread_create(&tidFantome[i], NULL, threadFantome, structFantome[i]);
+
+//   }
+
+//   pthread_cleanup_pop(0);
+// }
+
+void* threadCompteurFantomes(void *pParam)
+{
+  S_FANTOME *structFantomes[8];
+
+  int i, delaiLocal;
+
+  // Allouer la memoire pour les structures Fantome
+  for (i = 0; i < 8; i++)
+  {
+    structFantomes[i] = (S_FANTOME*)malloc(sizeof(S_FANTOME));
+
+    // Si la memoire n'a pas ete alloue, liberer la memoire et arreter le thread
+    if (structFantomes[i] == NULL)
+    {
+      for (int k = 0; k < i; k++)
+      {
+          free(structFantomes[k]);
+      }
+
+      pthread_exit(NULL);
+    }
+  }
+
+  // Mettre en place la fonction de liberation de la memoire
+  pthread_cleanup_push(cleanupStructFantomes, structFantomes);
+
+  // Creation d'une cle pour des variables specifiques et ajout d'un destructeur
+  pthread_key_create(&cle, free);
+
+  // Boucle principale
+  while (1)
+  {
+    pthread_mutex_lock(&mutexDelai);
+    delaiLocal = delai; // Note : On la recupere pour ne pas bloquer tout le monde pendant qu'on attend
+    pthread_mutex_unlock(&mutexDelai);
+
+    Attente((delaiLocal * 5) / 3);
+
+    pthread_mutex_lock(&mutexNbFantomes);
+    // Tant qu'il y a tous les Fantomes
+    while (nbRouge == 2 && nbVert == 2 && nbMauve == 2 && nbOrange == 2)
+    {
+        pthread_cond_wait(&condNbFantomes, &mutexNbFantomes);
+    }
+    pthread_mutex_unlock(&mutexNbFantomes);
+
+    // Note : Faire un pthread_cond_signal quand un Fantome est tue
+
+    i = 0;
+
+    // Initialiser la structure du Fantome
+    structFantomes[i]->L = 9;
+    structFantomes[i]->C = 8;
+    structFantomes[i]->couleur = ROUGE;
+    structFantomes[i]->cache = 0;
+
+    // Creer un threadFantome
+    pthread_create(&tidFantomes[i], NULL, threadFantome, structFantomes[i]);
+  }
+
+  // Jamais atteint
+  pthread_cleanup_pop(0); // Necessaire !
+  // Note : A continuer
+}
+
+void cleanupStructFantomes(void *pStructFantomes)
+{
+  S_FANTOME **ppStructFantomes = (S_FANTOME **)pStructFantomes;
+
+  int i;
+
+  for (i = 0; i < 8; i++)
+  {
+    free(ppStructFantomes[i]);
+  }
+}
+
+// *********************** Gestion d'un Fantome ***********************
+
+void* threadFantome(void *pParam)
+{
+  S_FANTOME *pStructFantome = (S_FANTOME *)pParam;
+  int *l = &(pStructFantome->L), *c = &(pStructFantome->C), *couleur = &(pStructFantome->couleur), *cache = &(pStructFantome->cache);
+  int dir = HAUT; // Note : Pas de probleme avec la variable dir globale ?
+  int nouveauL, nouveauC, nouvelleDir = dir;
+  int delaiLocal;
+  bool caseSuivanteTrouvee;
+
+  pthread_setspecific(cle, pStructFantome);
+
+  // Afficher le Fantome
+  pthread_mutex_lock(&mutexTab);
+  setTab(*l, *c, FANTOME, pthread_self());
+  DessineFantome(*l, *c, dir, *couleur);
+  pthread_mutex_unlock(&mutexTab);
+
+  while (1)
+  {
+    caseSuivanteTrouvee = false;
+
+    // Attente d'un delai
+    pthread_mutex_lock(&mutexDelai);
+    delaiLocal = delai;
+    pthread_mutex_unlock(&mutexDelai);
+
+    Attente((delaiLocal * 5) / 3);
+
+    pthread_mutex_lock(&mutexTab);
+    // Tant qu'on n'a pas trouve la case suivante
+    while (!caseSuivanteTrouvee)
+    {
+      nouveauL = *l;
+      nouveauC = *c;
+
+      switch (nouvelleDir)
+      {
+        case HAUT:
+          nouveauL--;
+          break;
+
+        case BAS:
+          nouveauL++;
+          break;
+
+        case GAUCHE:
+          nouveauC--;
+          break;
+
+        case DROITE:
+          nouveauC++;
+          break;
+      }
+
+      // S'il n'y a pas de mur ou de fantome dans cette direction
+      if (tab[nouveauL][nouveauC].presence != MUR && tab[nouveauL][nouveauC].presence != FANTOME)
+      {
+        // Restaurer l'ancienne case
+        switch (*cache)
+        {
+          case VIDE:
+            EffaceCarre(*l, *c);
+            break;
+
+          case PACGOM:
+            DessinePacGom(*l, *c);
+            break;
+
+          case SUPERPACGOM:
+            DessineSuperPacGom(*l, *c);
+            break;
+
+          case BONUS:
+            DessineBonus(*l, *c);
+            break;
+        }
+
+        // Si la prochaine case est le Pac-Man
+        if (tab[nouveauL][nouveauC].presence == PACMAN)
+        {
+          pthread_cancel(tidPacMan);
+        }
+
+        // Avancer le Fantome
+        *l = nouveauL;
+        *c = nouveauC;
+        dir = nouvelleDir;
+
+        setTab(*l, *c, FANTOME, pthread_self());
+        DessineFantome(*l, *c, dir, *couleur);
+
+        caseSuivanteTrouvee = true;
+      }
+      else
+      {
+        // Generer une direction aleatoire
+        nouvelleDir = (rand() % 4) + 500000; // Note : Est-ce bien d'utiliser un nombre magique ?
+      }
+    }
+
+    pthread_mutex_unlock(&mutexTab);
+  }
+}
+
 // *********************** Gestion des evenements ***********************
 
 void* threadEvent(void *pParam)
@@ -562,7 +813,7 @@ void* threadEvent(void *pParam)
   }
 
   // Annulation de threadPacMan, threadPacGom et threadScore
-  if (pthread_cancel(tidPacMan) != 0 || pthread_cancel(tidPacGom) != 0 || pthread_cancel(tidScore) != 0 || pthread_cancel(tidBonus) != 0)
+  if (pthread_cancel(tidPacMan) != 0 || pthread_cancel(tidPacGom) != 0 || pthread_cancel(tidScore) != 0 || pthread_cancel(tidBonus) != 0 || pthread_cancel(tidCompteurFantomes) != 0)
   {
     messageErreur("EVENT", "Tous les threads n'ont pas pu etre annule");
   }
