@@ -49,7 +49,7 @@ sigset_t maskPacMan; // Note : Est-ce bien que ce soit en global ?
 bool MAJScore = true;
 int L, C, dir; // Position et direction du PacMan
 int nbPacGom, delai = 300, score = 0;
-int nbRouge, nbVert, nbMauve, nbOrange;
+int nbRouge = 0, nbVert = 0, nbMauve = 0, nbOrange = 0;
 
 void* threadPacGom(void *pParam);
 void augmenterNiveau(int *niveau);
@@ -63,6 +63,7 @@ void handlerSignaux(int signal);
 void* threadScore(void *pParam);
 void* threadBonus(void *pParam);
 void* threadCompteurFantomes(void *pParam);
+void creerFantome(S_FANTOME *structFantomes[8]);
 void cleanupStructFantomes(void *pStructFantomes);
 void* threadFantome(void *pParam);
 void* threadEvent(void *pParam);
@@ -313,7 +314,7 @@ void* threadPacMan(void *pParam)
     // Si le prochain emplacement n'est pas un mur
     if (tab[nouveauL][nouveauC].presence != MUR)
     {
-      detecterPresenceProchaineCase(nouveauL, nouveauC);
+      detecterPresenceProchaineCasePacMan(nouveauL, nouveauC);
 
       // On deplace le Pac-Man avec la nouvelle direction
       changerPositionPacMan(nouveauL, nouveauC, nouvelleDir, maskPacMan);
@@ -327,7 +328,7 @@ void* threadPacMan(void *pParam)
       // Si le prochain emplacement avec l'ancienne direction n'est pas un mur
       if (tab[nouveauL][nouveauC].presence != MUR)
       {
-        detecterPresenceProchaineCase(nouveauL, nouveauC);
+        detecterPresenceProchaineCasePacMan(nouveauL, nouveauC);
 
         // On deplace le Pac-Man avec l'ancienne direction
         changerPositionPacMan(nouveauL, nouveauC, ancienneDir, maskPacMan);
@@ -532,63 +533,11 @@ void* threadBonus(void *pParam)
 
 // *********************** Gestion des Fantomes ***********************
 
-// void* threadCompteurFantomes(void *pParam)
-// {
-//   S_FANTOME *structFantomes[8];
-
-//   int i;
-  
-//   // Allouer la memoire pour les structures Fantome
-//   for (i = 0; i < 8; i++)
-//   {
-//     structFantomes[i] = malloc(sizeof(S_FANTOME));
-//     // *structFantomes[i] = (S_FANTOME *)malloc(sizeof(S_FANTOME));
-//     // Ajouter pour chaque allocation une fonction de liberation
-//     pthread_cleanup_push(free, structFantomes[i]);
-//   }
-
-//   pthread_key_create(&cle, free);
-
-//   // Boucle principale
-//   while (1)
-//   {
-//     pthread_mutex_lock(&mutexNbFantomes);
-//     // Tant qu'il y a tous les Fantomes
-//     while (nbRouge == 2 && nbVert == 2 && nbMauve == 2 && nbOrange == 2)
-//     {
-//       pthread_cond_wait(&condNbFantomes, &mutexNbFantomes); // Attendre un changement du score
-//     }
-//     pthread_mutex_unlock(&mutexNbFantomes);
-
-//     // S'il manque un ou des Fantomes rouges
-//     // if (nbRouge == 0)
-//     // {
-//     //   i = 0;
-//     // }
-//     // else if (NbRouge == 1)
-//     // {
-//     //   i = 1;
-//     // }
-
-//     i = 0; // Note : A changer
-
-//     structFantomes[i]->L = 9;
-//     structFantomes[i]->C = 8;
-//     structFantomes[i]->couleur = ROUGE;
-//     structFantomes[i]->cache = 0;
-
-//     pthread_create(&tidFantome[i], NULL, threadFantome, structFantome[i]);
-
-//   }
-
-//   pthread_cleanup_pop(0);
-// }
-
 void* threadCompteurFantomes(void *pParam)
 {
   S_FANTOME *structFantomes[8];
 
-  int i, delaiLocal;
+  int i, j, delaiLocal;
 
   // Allouer la memoire pour les structures Fantome
   for (i = 0; i < 8; i++)
@@ -598,9 +547,9 @@ void* threadCompteurFantomes(void *pParam)
     // Si la memoire n'a pas ete alloue, liberer la memoire et arreter le thread
     if (structFantomes[i] == NULL)
     {
-      for (int k = 0; k < i; k++)
+      for (j = 0; j < i; j++)
       {
-          free(structFantomes[k]);
+          free(structFantomes[j]);
       }
 
       pthread_exit(NULL);
@@ -608,7 +557,7 @@ void* threadCompteurFantomes(void *pParam)
   }
 
   // Mettre en place la fonction de liberation de la memoire
-  pthread_cleanup_push(cleanupStructFantomes, structFantomes);
+  // pthread_cleanup_push(cleanupStructFantomes, (void*)structFantomes);
 
   // Creation d'une cle pour des variables specifiques et ajout d'un destructeur
   pthread_key_create(&cle, free);
@@ -617,7 +566,7 @@ void* threadCompteurFantomes(void *pParam)
   while (1)
   {
     pthread_mutex_lock(&mutexDelai);
-    delaiLocal = delai; // Note : On la recupere pour ne pas bloquer tout le monde pendant qu'on attend
+    delaiLocal = delai; // Note : On la recupere pour ne pas bloquer tout le monde pendant l'attente
     pthread_mutex_unlock(&mutexDelai);
 
     Attente((delaiLocal * 5) / 3);
@@ -632,34 +581,85 @@ void* threadCompteurFantomes(void *pParam)
 
     // Note : Faire un pthread_cond_signal quand un Fantome est tue
 
-    i = 0;
-
-    // Initialiser la structure du Fantome
-    structFantomes[i]->L = 9;
-    structFantomes[i]->C = 8;
-    structFantomes[i]->couleur = ROUGE;
-    structFantomes[i]->cache = 0;
-
-    // Creer un threadFantome
-    pthread_create(&tidFantomes[i], NULL, threadFantome, structFantomes[i]);
+    creerFantome(structFantomes);
   }
 
   // Jamais atteint
-  pthread_cleanup_pop(0); // Necessaire !
-  // Note : A continuer
+  // pthread_cleanup_pop(1);
 }
 
-void cleanupStructFantomes(void *pStructFantomes)
+void creerFantome(S_FANTOME *structFantomes[8])
 {
-  S_FANTOME **ppStructFantomes = (S_FANTOME **)pStructFantomes;
-
   int i;
 
-  for (i = 0; i < 8; i++)
+  pthread_mutex_lock(&mutexNbFantomes);
+  // Trouver le Fantome a creer
+  if (nbRouge < 2)
   {
-    free(ppStructFantomes[i]);
+    if (nbRouge == 0) i = 0;
+    else i = 1;
+
+    structFantomes[i]->couleur = ROUGE;
+    nbRouge++;
   }
+  else if (nbVert < 2)
+  {
+    if (nbVert == 0) i = 2;
+    else i = 3;
+    
+    structFantomes[i]->couleur = VERT;
+    nbVert++;
+  }
+  else if (nbMauve < 2)
+  {
+    if (nbMauve == 0) i = 4;
+    else i = 5;
+
+    structFantomes[i]->couleur = MAUVE;
+    nbMauve++;
+  }
+  else if (nbOrange < 2)
+  {
+    if (nbOrange == 0) i = 6;
+    else i = 7;
+    
+    structFantomes[i]->couleur = ORANGE;
+    nbOrange++;
+  }
+  else
+  {
+    return; // Pas necessaire
+  }
+
+  structFantomes[i]->L = 9;
+  structFantomes[i]->C = 8;
+  structFantomes[i]->cache = 0;
+
+  // Creer un threadFantome
+  if (pthread_create(&tidFantomes[i], NULL, threadFantome, (void*)structFantomes[i]) != 0)
+  {
+    messageErreur("THREADCOMPTEURFANTOMES", "Erreur de pthread_create");
+    // Note : Mettre a jour le nombre de Fantomes
+  }
+  pthread_mutex_unlock(&mutexNbFantomes);
 }
+
+// Non necessaire, car on a pthread_key_create(&cle, free);
+// void cleanupStructFantomes(void *pStructFantomes)
+// {
+//   printf("CleanupStructFantomes active\n");
+//   fflush(stdout);
+//   S_FANTOME **ppStructFantomes = (S_FANTOME **)pStructFantomes;
+
+//   int i;
+
+//   for (i = 0; i < 8; i++)
+//   {
+//     free(ppStructFantomes[i]);
+//   }
+//   printf("Fin de CleanupStructFantomes\n");
+//   fflush(stdout);
+// }
 
 // *********************** Gestion d'un Fantome ***********************
 
@@ -667,12 +667,35 @@ void* threadFantome(void *pParam)
 {
   S_FANTOME *pStructFantome = (S_FANTOME *)pParam;
   int *l = &(pStructFantome->L), *c = &(pStructFantome->C), *couleur = &(pStructFantome->couleur), *cache = &(pStructFantome->cache);
-  int dir = HAUT; // Note : Pas de probleme avec la variable dir globale ?
+  int dir = HAUT; // Note : Attention a la variable dir globale ?
   int nouveauL, nouveauC, nouvelleDir = dir;
   int delaiLocal;
-  bool caseSuivanteTrouvee;
+  bool caseDepartOccupee = true, caseSuivanteTrouvee;
 
   pthread_setspecific(cle, pStructFantome);
+
+  // Tant qu'il y a un Fantome sur la case de depart
+  // Necessaire ?
+  while (caseDepartOccupee)
+  {
+    pthread_mutex_lock(&mutexTab);
+    // Si la case n'est plus occupee
+    if (tab[*l][*c].presence != FANTOME)
+    {
+      caseDepartOccupee = false; // Signaler que la case n'est plus occupee
+    }
+    pthread_mutex_unlock(&mutexTab);
+
+    // Si la case est occupee
+    if (caseDepartOccupee == true)
+    {
+      pthread_mutex_lock(&mutexDelai);
+      delaiLocal = (delai * 5) / 3;
+      pthread_mutex_unlock(&mutexDelai);
+
+      Attente(delaiLocal); // On attend la duree d'un delai
+    }
+  }
 
   // Afficher le Fantome
   pthread_mutex_lock(&mutexTab);
@@ -686,10 +709,10 @@ void* threadFantome(void *pParam)
 
     // Attente d'un delai
     pthread_mutex_lock(&mutexDelai);
-    delaiLocal = delai;
+    delaiLocal = (delai * 5) / 3;
     pthread_mutex_unlock(&mutexDelai);
 
-    Attente((delaiLocal * 5) / 3);
+    Attente(delaiLocal);
 
     pthread_mutex_lock(&mutexTab);
     // Tant qu'on n'a pas trouve la case suivante
@@ -812,10 +835,24 @@ void* threadEvent(void *pParam)
     }
   }
 
+  for (int i = 0; i < 8; i++)
+  {
+    if (pthread_cancel(tidFantomes[i]) != 0)
+    {
+      messageErreur("EVENT", "Un thread Fantome n'a pas pu etre annule");
+    }
+    else
+    {
+      messageSucces("EVENT", "Le thread Fantome a ete annule");
+      pthread_join(tidFantomes[i], NULL);
+    }
+  }
+
   // Annulation de threadPacMan, threadPacGom et threadScore
   if (pthread_cancel(tidPacMan) != 0 || pthread_cancel(tidPacGom) != 0 || pthread_cancel(tidScore) != 0 || pthread_cancel(tidBonus) != 0 || pthread_cancel(tidCompteurFantomes) != 0)
   {
     messageErreur("EVENT", "Tous les threads n'ont pas pu etre annule");
+    // Note : Attention ! Si le Pac-Man est tue, tidPacMan n'est plus correct.
   }
   else
   {
@@ -884,19 +921,19 @@ void DessineGrilleBase() {
 
 void messageInfo(const char *nomThread, const char *message)
 {
-  printf("(%s %p) (INFO) %s\n", nomThread, pthread_self(), message);
+  printf("(%s %lu) (INFO) %s\n", nomThread, pthread_self(), message);
   fflush(stdout);
 }
 
 void messageSucces(const char *nomThread, const char *message)
 {
-  printf("\033[32m(%s %p) (SUCCES) %s\033[0m\n", nomThread, pthread_self(), message);
+  printf("\033[32m(%s %lu) (SUCCES) %s\033[0m\n", nomThread, pthread_self(), message);
   fflush(stdout);
 }
 
 void messageErreur(const char* nomThread, const char *message)
 {
-  fprintf(stderr, "\033[31m(%s %p) (ERREUR) %s\033[0m\n", nomThread, pthread_self(), message);
+  fprintf(stderr, "\033[31m(%s %lu) (ERREUR) %s\033[0m\n", nomThread, pthread_self(), message);
   fflush(stderr);
 
   if (errno != 0)
