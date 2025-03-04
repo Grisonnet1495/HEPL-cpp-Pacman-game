@@ -173,9 +173,9 @@ void* threadPacGom(void *pParam)
     nbPacGom = 0;
     
     // Remplir les cases vides avec des Pac-Goms
-    for (l = 0; l < /*NB_LIGNE*/5; l++)
+    for (l = 0; l < NB_LIGNE; l++)
     {
-      for (c = 0; c < /*NB_COLONNE*/5; c++)
+      for (c = 0; c < NB_COLONNE; c++)
       {
         if (tab[l][c].presence == 0)
         {
@@ -667,7 +667,7 @@ void* threadFantome(void *pParam)
   int dir = HAUT; // Note : Attention a la variable dir globale ?
   int nouveauL, nouveauC, nouvelleDir = dir;
   int delaiLocal;
-  int tentative;
+  int tentative; // Necessaire pour ne pas bloquer les autres threads si un Fantome est bloque
   bool caseDepartOccupee = true, caseSuivanteTrouvee;
 
   pthread_setspecific(cle, pStructFantome);
@@ -698,7 +698,7 @@ void* threadFantome(void *pParam)
   // Afficher le Fantome
   pthread_mutex_lock(&mutexTab);
   setTab(*l, *c, FANTOME, pthread_self());
-  DessineFantome(*l, *c, dir, *couleur);
+  DessineFantome(*l, *c, *couleur, dir);
   pthread_mutex_unlock(&mutexTab);
 
   while (1)
@@ -714,7 +714,7 @@ void* threadFantome(void *pParam)
     Attente(delaiLocal);
 
     pthread_mutex_lock(&mutexTab);
-    // Tant qu'on n'a pas trop essaye (nombre choisi arbitrairement)
+    // Tant qu'on n'a pas trouve une case ou qu'on n'a pas trop essaye (nombre choisi arbitrairement)
     while (!caseSuivanteTrouvee && tentative < 20)
     {
       nouveauL = *l;
@@ -797,7 +797,7 @@ void* threadFantome(void *pParam)
         dir = nouvelleDir;
 
         setTab(*l, *c, FANTOME, pthread_self());
-        DessineFantome(*l, *c, dir, *couleur);
+        DessineFantome(*l, *c, *couleur, dir);
 
         caseSuivanteTrouvee = true;
       }
