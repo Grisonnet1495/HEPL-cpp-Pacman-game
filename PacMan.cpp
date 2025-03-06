@@ -56,11 +56,13 @@ void initialiserPacGoms();
 void afficherNbPacGoms();
 void augmenterNiveau(int *niveau);
 void* threadPacMan(void *pParam);
+void placerPacManEtAttente();
 void calculerCoord(int direction, int *nouveauL, int *nouveauC);
 void detecterProchaineCasePacMan(int l, int c);
 void diminuerNbPacGom();
 void augmenterScore(int augmentation);
 void changerPositionPacMan(int nouveauL, int nouveauC, int direction, sigset_t mask);
+void tuerPacMan();
 void handlerSignaux(int signal);
 void* threadScore(void *pParam);
 void* threadBonus(void *pParam);
@@ -74,6 +76,7 @@ void* threadVies(void *pParam);
 void cleanupMutexTab(void *p);
 void* threadEvent(void *pParam);
 void annulerThreads();
+void annulerThreadsFantomes();
 void DessineGrilleBase();
 void Attente(int milli);
 void setTab(int l, int c, int presence = VIDE, pthread_t tid = 0);
@@ -181,6 +184,7 @@ void* threadPacGom(void *pParam)
     // Afficher le niveau actuel
     DessineChiffre(14, 22, niveauJeu);
 
+    // Initialiser les Pac-Goms
     pthread_mutex_lock(&mutexNbPacGom);
     initialiserPacGoms();
 
@@ -245,19 +249,19 @@ void initialiserPacGoms()
   }
 
   // Ajouter les super Pac-Goms
-  for (int i = 0; i < (sizeof(tabPosSuperPacGoms) / sizeof(tabPosSuperPacGoms[0])); i++)
-  {
-    l = tabPosSuperPacGoms[i][0];
-    c = tabPosSuperPacGoms[i][1];
+  // for (int i = 0; i < (sizeof(tabPosSuperPacGoms) / sizeof(tabPosSuperPacGoms[0])); i++)
+  // {
+  //   l = tabPosSuperPacGoms[i][0];
+  //   c = tabPosSuperPacGoms[i][1];
 
-    if (tab[l][c].presence != PACGOM) // Si on n'a pas rempli toute les cases vides avec des Pac-Goms
-    {
-      nbPacGom++;
-    }
+  //   if (tab[l][c].presence != PACGOM) // Si on n'a pas rempli toute les cases vides avec des Pac-Goms
+  //   {
+  //     nbPacGom++;
+  //   }
 
-    setTab(l, c, SUPERPACGOM);
-    DessineSuperPacGom(l,c);
-  }
+  //   setTab(l, c, SUPERPACGOM);
+  //   DessineSuperPacGom(l,c);
+  // }
 
   pthread_mutex_unlock(&mutexTab);
 }
@@ -279,6 +283,37 @@ void augmenterNiveau(int *niveau)
   delai /= 2;
   pthread_mutex_unlock(&mutexDelai);
 
+  // Annuler tous les threadFantome pour qu'ils reviennent au depart
+  annulerThreadsFantomes();
+
+  // Efface les Fantômes qui sont affiches
+  for (int l = 0; l < NB_LIGNE; l++)
+  {
+    for (int c = 0; c < NB_COLONNE; c++)
+    {
+      if (tab[l][c].presence == FANTOME)
+      {
+        EffaceCarre(l, c);
+        setTab(l, c, VIDE);
+      }
+    }
+  }
+
+  // Indiquer au threadCompteurFantomes qu'il n'y a plus de Fantomes
+  pthread_mutex_lock(&mutexNbFantomes);
+  nbRouge = 0;
+  nbVert = 0;
+  nbMauve = 0;
+  nbOrange = 0;
+  pthread_mutex_unlock(&mutexNbFantomes);
+  pthread_cond_signal(&condNbFantomes);
+
+  // Efface l'emplacement courant du Pac-Man
+  EffaceCarre(L, C);
+  setTab(L, C, VIDE);
+  // Remet le Pac-Man a la position de depart
+  placerPacManEtAttente();
+
   changerPositionPacMan(LENTREE, CENTREE, GAUCHE, maskPacMan);
 }
 
@@ -291,9 +326,6 @@ void* threadPacMan(void *pParam)
 
   int nouveauL, nouveauC, nouvelleDir, ancienneDir;
   int delaiLocal;
-  dir = GAUCHE;
-  L = LENTREE;
-  C = CENTREE;
 
   // Demasquage des signaux SIGINT, SIGHUP, SIGUSR1 et SIGUSR2
   sigemptyset(&maskPacMan);
@@ -314,12 +346,11 @@ void* threadPacMan(void *pParam)
     messageErreur("PACMAN", "Erreur de sigaction. Des signaux pourraient ne pas fonctionner.\n");
   }
 
+  sigprocmask(SIG_SETMASK, &maskPacMan, NULL);
   pthread_mutex_lock(&mutexTab);
-  // Placer le Pac-Man au point de départ
-  setTab(L, C, PACMAN);
-  DessinePacMan(L, C, GAUCHE);
-  Attente(2000); // Met le jeu en pause pendant 2 secondes
+  placerPacManEtAttente();
   pthread_mutex_unlock(&mutexTab);
+  sigprocmask(SIG_UNBLOCK, &maskPacMan, NULL);
 
   // Boucled principale
   while (1)
@@ -368,6 +399,28 @@ void* threadPacMan(void *pParam)
   }
 }
 
+void placerPacManEtAttente()
+{
+  dir = GAUCHE;
+  L = LENTREE;
+  C = CENTREE;
+
+  // Placer le Pac-Man au point de départ
+  setTab(L, C, PACMAN);
+
+  // Faire clignoter le PacMan
+  for (int i = 0; i < 3; i++)
+  {
+    DessinePacMan(L, C, GAUCHE);
+    Attente(500);
+    EffaceCarre(L, C);
+    Attente(500);
+  }
+  
+  DessinePacMan(L, C, GAUCHE);
+  Attente(500);
+}
+
 void calculerCoord(int direction, int *nouveauL, int *nouveauC)
 {
   *nouveauL = L;
@@ -411,15 +464,9 @@ void detecterProchaineCasePacMan(int l, int c)
       break;
 
     case FANTOME:
-      // Le Pac-Man meurt
-      Attente(2000); // Met le jeu en pause pendant 2 secondes
       pthread_mutex_unlock(&mutexTab);
-      messageInfo("PACMAN", "Le Pac-Man a ete mange par un Fantome");
-      // Effacer le Pac-Man
-      EffaceCarre(L, C);
-      setTab(L, C, VIDE);
-      // Terminer le thread
-      pthread_exit(NULL);
+      // Tuer le Pac-Man
+      tuerPacMan();
       break;
   }
 }
@@ -454,6 +501,23 @@ void changerPositionPacMan(int nouveauL, int nouveauC, int direction, sigset_t m
   setTab(L, C, PACMAN);
   DessinePacMan(L, C, direction);
   sigprocmask(SIG_UNBLOCK, &mask, NULL);
+}
+
+void tuerPacMan()
+{
+  EffaceCarre(L, C);
+  setTab(L, C, VIDE);
+
+  // Si c'est le PacMan qui se tue
+  if (pthread_self() == tidPacMan)
+  {
+    messageInfo("PACMAN", "Le Pac-Man a ete mange par un Fantome");
+    pthread_exit(NULL);
+  }
+
+  // Si c'est le Fantome qui tue le PacMan
+  pthread_cancel(tidPacMan);
+  messageInfo("FANTOME", "Le Fantome a tue le Pac-Man");
 }
 
 // Change la direction du Pac-Man a la reception d'un signal
@@ -863,14 +927,8 @@ void detecterProchaineCaseFantome(int nouveauL, int nouveauC, int *cache)
       break;
 
     case PACMAN:
-      // Si le Pac-Man ne s'est pas tue au meme moment
-      if (tidPacMan)
-      {
-        Attente(2000); // Met en pause le jeu pendant 2 secondes
-        // Tuer le Pac-Man
-        pthread_cancel(tidPacMan);
-        messageInfo("FANTOME", "Le Fantome a tue le Pac-Man");
-      }
+      // Si le Pac-Man ne s'est pas tue au meme moment, tuer le PacMan
+      if (tidPacMan) tuerPacMan();
       break;
 
     case PACGOM:
@@ -910,7 +968,7 @@ void* threadVies(void *pParam)
     if (tab[L][C].presence == PACMAN)
     {
       EffaceCarre(L, C);
-      // Note : Faut-il enlever le Pac-Man de tab ?
+      setTab(L, C, VIDE);
     }
     pthread_mutex_unlock(&mutexTab);
 
@@ -977,8 +1035,12 @@ void* threadEvent(void *pParam)
     }
   }
 
-  // Annuler tous les threads
+  // Annuler tous les threads, sauf les threadFantome
   annulerThreads();
+  // Annuler tous les threadFantome
+  printf("Annulation de tous les threadFantome\n");
+  fflush(stdout);
+  annulerThreadsFantomes();
 
   pthread_exit(NULL);
 }
@@ -995,27 +1057,6 @@ void annulerThreads()
     else
     {
       messageErreur("EVENT", "threadVies n'a pas pu etre annule");
-    }
-  }
-
-  // Annulation de tous les threadFantome
-  for (int i = 0; i < 8; i++)
-  {
-    // Si le Fantome n'existe pas
-    if (tidFantomes[i] == 0)
-    {
-      messageInfo("EVENT", "Thread Fantome inexistant. Il ne sera donc pas annule.");
-      continue;
-    }
-
-    // Sinon, tuer le Fantome
-    if (pthread_cancel(tidFantomes[i]) == 0)
-    {
-      pthread_join(tidFantomes[i], NULL);
-    }
-    else
-    {
-      messageErreur("EVENT", "Un thread Fantome n'a pas pu etre annule");
     }
   }
 
@@ -1045,6 +1086,31 @@ void annulerThreads()
   else
   {
     messageInfo("EVENT", "threadPacMan inexistant. Il ne sera donc pas annule.");
+  }
+}
+
+void annulerThreadsFantomes()
+{
+  for (int i = 0; i < 8; i++)
+  {
+    // Si le Fantome n'existe pas
+    if (tidFantomes[i] == 0)
+    {
+      messageInfo("EVENT", "Thread Fantome inexistant. Il ne sera donc pas annule.");
+      continue;
+    }
+
+    // Sinon, tuer le Fantome
+    if (pthread_cancel(tidFantomes[i]) == 0)
+    {
+      pthread_join(tidFantomes[i], NULL);
+    }
+    else
+    {
+      messageErreur("EVENT", "Un thread Fantome n'a pas pu etre annule");
+    }
+
+    tidFantomes[i] = 0;
   }
 }
 
