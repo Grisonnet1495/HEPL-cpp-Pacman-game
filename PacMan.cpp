@@ -962,6 +962,7 @@ void* threadVies(void *pParam)
     pthread_create(&tidPacMan, NULL, threadPacMan, NULL);
     // Attend la mort du Pac-Man
     pthread_join(tidPacMan, NULL); // Note : Attention ! Est-ce que Pac-Man peut mourir 2 fois en même temps ?
+    tidPacMan = 0; // Empêche qu'un mauvais tid soit utilises
     
     pthread_mutex_lock(&mutexTab);
     // Efface la derniere case avec le Pac-Man
@@ -972,7 +973,6 @@ void* threadVies(void *pParam)
     }
     pthread_mutex_unlock(&mutexTab);
 
-    tidPacMan = 0; // Empêche qu'un mauvais tid soit utilise
     nbVies--;
   }
 
@@ -980,7 +980,7 @@ void* threadVies(void *pParam)
   pthread_mutex_lock(&mutexTab); // Le mutex n'est jamais libere
   DessineGameOver(9, 4);
 
-  tidVies = 0;
+  // tidVies = 0; // A enlever, car bloque l'arret du jeu
   pthread_exit(NULL);
 }
 
@@ -1048,16 +1048,13 @@ void* threadEvent(void *pParam)
 void annulerThreads()
 {
   // Annulation de threadVies s'il existe
-  if (tidVies)
+  if (pthread_cancel(tidVies) == 0)
   {
-    if (pthread_cancel(tidVies) == 0)
-    {
-      messageSucces("EVENT", "threadVies a ete annule");
-    }
-    else
-    {
-      messageErreur("EVENT", "threadVies n'a pas pu etre annule");
-    }
+    messageSucces("EVENT", "threadVies a ete annule");
+  }
+  else
+  {
+    messageErreur("EVENT", "threadVies n'a pas pu etre annule");
   }
 
   // Annulation de threadPacGom, threadScore, threadBonus, threadCompteurFantomes et threadVies
@@ -1104,6 +1101,7 @@ void annulerThreadsFantomes()
     if (pthread_cancel(tidFantomes[i]) == 0)
     {
       pthread_join(tidFantomes[i], NULL);
+      messageSucces("EVENT", "Un thread Fantome a ete annule");
     }
     else
     {
