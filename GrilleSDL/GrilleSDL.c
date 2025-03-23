@@ -122,25 +122,31 @@ int FermerGrilleSDL()
   int i;
 
   pthread_mutex_lock(&(maGrille.mutexG));
+  printf("1\n");
 
   // Liberation memoire pour les differents sprites
   for (i=0 ; i<60 ; i++)
     if (maGrille.sprites[i].occupe) SDL_FreeSurface(maGrille.sprites[i].surface);
+    printf("2\n");
   
   // Liberation memoire pour l'image de fond
   if (maGrille.fond != NULL) SDL_FreeSurface(maGrille.fond);
+  printf("3\n");
 
   maGrille.enVie = 0;
   pthread_cancel(maGrille.threadEventSDL);
   //pthread_join(maGrille.threadEventSDL,NULL);
+  printf("4\n");
 
   SDL_Quit();
+  printf("5\n");
 
   pthread_mutex_unlock(&(maGrille.mutexG));
 
   pthread_mutex_destroy(&(maGrille.mutexW));
   pthread_mutex_destroy(&(maGrille.mutexR));
   pthread_mutex_destroy(&(maGrille.mutexG));
+  printf("6\n");
 
   return 0;
 }

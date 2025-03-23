@@ -114,15 +114,14 @@ int main(int argc,char* argv[])
   // DessineFantomeComestible(13, 15);
   // DessineBonus(5, 15);
 
-  // Initialisation de mutexTab et de mutexDelai
+  // Initialisation des mutex
   if (pthread_mutex_init(&mutexTab, NULL) != 0 || pthread_mutex_init(&mutexDelai, NULL) != 0 || pthread_mutex_init(&mutexNbPacGom, NULL) != 0 || pthread_mutex_init(&mutexScore, NULL) != 0 || pthread_mutex_init(&mutexLC, NULL) != 0 || pthread_mutex_init(&mutexNbFantomes, NULL) != 0)
   {
     messageErreur("MAIN", "Erreur de phtread_mutex_init");
     exit(1);
   }
-  messageSucces("MAIN", "Initialisation de mutexTab, mutexDelai, mutexNbPacGom, mutexScore et mutexNbFantomes reussie");
+  messageSucces("MAIN", "Initialisation de mutexTab, mutexDelai, mutexNbPacGom, mutexScore, mutexLC et mutexNbFantomes reussie");
 
-  // Initialisation des variables de condition condNbPacGom, condScore et condNbFantomes
   if (pthread_cond_init(&condNbPacGom, NULL) != 0 || pthread_cond_init(&condScore, NULL) != 0 || pthread_cond_init(&condNbFantomes, NULL) != 0)
   {
     messageErreur("MAIN", "Erreur de phtread_cond_init");
@@ -147,15 +146,23 @@ int main(int argc,char* argv[])
   pthread_create(&tidCompteurFantomes, NULL, threadCompteurFantomes, NULL);
   pthread_create(&tidVies, NULL, threadVies, NULL);
   
-  // Suppression de threadPacMan s'il existe
-  if (tidPacMan) pthread_join(tidPacMan, NULL);
-  // Suppression de threadVies, threadPacGom, threadScore, threadBonus, threadEvent, threadCompteurFantomes
-  pthread_join(tidVies, NULL); // Note : Emplacement non definitif
-  pthread_join(tidPacGom, NULL);
-  pthread_join(tidScore, NULL);
-  pthread_join(tidBonus, NULL);
+  // Attente de threadEvent
   pthread_join(tidEvent, NULL);
-  pthread_join(tidCompteurFantomes, NULL);
+
+  // Suppression des mutex
+  pthread_mutex_destroy(&mutexTab);
+  pthread_mutex_destroy(&mutexDelai);
+  pthread_mutex_destroy(&mutexNbPacGom);
+  pthread_mutex_destroy(&mutexScore);
+  pthread_mutex_destroy(&mutexLC);
+  pthread_mutex_destroy(&mutexNbFantomes);
+  messageSucces("MAIN", "mutexTab, mutexDelai, mutexNbPacGom, mutexScore, mutexLC et mutexNbFantomes supprimes");
+
+  // Suppresion des variables de condition
+  pthread_cond_destroy(&condNbPacGom);
+  pthread_cond_destroy(&condScore);
+  pthread_cond_destroy(&condNbFantomes);
+  messageSucces("MAIN", "condNbPacGom, condScore et condNbFantomes supprimees");
 
   messageInfo("MAIN", "Attente de 1500 millisecondes...");
   Attente(1500);
@@ -1050,6 +1057,7 @@ void annulerThreads()
   // Annulation de threadVies s'il existe
   if (pthread_cancel(tidVies) == 0)
   {
+    pthread_join(tidVies, NULL);
     messageSucces("EVENT", "threadVies a ete annule");
   }
   else
@@ -1060,6 +1068,10 @@ void annulerThreads()
   // Annulation de threadPacGom, threadScore, threadBonus, threadCompteurFantomes et threadVies
   if (pthread_cancel(tidPacGom) == 0 && pthread_cancel(tidScore) == 0 && pthread_cancel(tidBonus) == 0 && pthread_cancel(tidCompteurFantomes) == 0)
   {
+    pthread_join(tidPacGom, NULL);
+    pthread_join(tidScore, NULL);
+    pthread_join(tidBonus, NULL);
+    pthread_join(tidCompteurFantomes, NULL);
     messageSucces("EVENT", "threadPacGom, threadScore, threadBonus, threadCompteurFantomes et threadVies ont ete annule");
   }
   else
@@ -1073,6 +1085,7 @@ void annulerThreads()
     // Annuler le threadPacMan
     if (pthread_cancel(tidPacMan) == 0)
     {
+      pthread_join(tidPacMan, NULL);
       messageSucces("EVENT", "Le threadPacMan a ete annule");
     }
     else
