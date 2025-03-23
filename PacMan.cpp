@@ -43,7 +43,7 @@ S_CASE tab[NB_LIGNE][NB_COLONNE];
 
 pthread_t tidPacGom, tidPacMan = 0, tidScore, tidEvent, tidBonus, tidCompteurFantomes, tidVies, tidTimeOut = 0, tidFantomes[8] = { 0 }; // Note : tidEvent peut etre dans le main
 pthread_mutex_t mutexTab, mutexDelai, mutexNbPacGom, mutexScore, mutexNbFantomes, mutexMode;
-pthread_cond_t condNbPacGom, condScore, condNbFantomes;
+pthread_cond_t condNbPacGom, condScore, condNbFantomes, condMode;
 pthread_key_t cle;
 sigset_t maskPacMan; // Note : Est-ce bien que ce soit en global ?
 bool MAJScore = true;
@@ -59,7 +59,7 @@ void augmenterNiveau(int *niveau);
 void* threadPacMan(void *pParam);
 void placerPacManEtAttente();
 void calculerCoord(int direction, int *nouveauL, int *nouveauC);
-void detecterProchaineCasePacMan(int l, int c);
+void detecterProchaineCasePacMan(int l, int c, int secondesRestantes);
 void diminuerNbPacGom();
 void augmenterScore(int augmentation);
 void changerPositionPacMan(int nouveauL, int nouveauC, int direction, sigset_t mask);
@@ -73,6 +73,8 @@ void cleanupStructFantomes(void *pStructFantomes);
 void* threadFantome(void *pParam);
 void restaurerAncienneCase(int *l, int *c, int *cache);
 void detecterProchaineCaseFantome(int nouveauL, int nouveauC, int *cache);
+void handlerSIGCHLD(int signal);
+void cleanupFantome(void *pParam);
 void* threadTimeOut(void *pParam);
 void handlerSIGQUIT(int signal);
 void handlerSIGALRM(int signal);
@@ -80,6 +82,7 @@ void* threadVies(void *pParam);
 void cleanupMutexTab(void *p);
 void* threadEvent(void *pParam);
 void annulerThreads();
+void annulerThreadCompteurFantomes();
 void annulerThreadsFantomes();
 void DessineGrilleBase();
 void Attente(int milli);
@@ -126,7 +129,8 @@ int main(int argc,char* argv[])
   }
   messageSucces("MAIN", "Initialisation de mutexTab, mutexDelai, mutexNbPacGom, mutexScore et mutexNbFantomes reussie");
 
-  if (pthread_cond_init(&condNbPacGom, NULL) != 0 || pthread_cond_init(&condScore, NULL) != 0 || pthread_cond_init(&condNbFantomes, NULL) != 0)
+  // Initialisation des variables de condition
+  if (pthread_cond_init(&condNbPacGom, NULL) != 0 || pthread_cond_init(&condScore, NULL) != 0 || pthread_cond_init(&condNbFantomes, NULL) != 0 || pthread_cond_init(&condMode, NULL) != 0)
   {
     messageErreur("MAIN", "Erreur de phtread_cond_init");
     exit(1);
@@ -135,14 +139,16 @@ int main(int argc,char* argv[])
 
   // Masquage des signaux SIGINT, SIGHUP, SIGUSR1, SIGUSR2, SIGALRM et SIGQUIT
   sigset_t mask;
-  // sigemptyset(&mask);
-  // sigaddset(&mask, SIGINT);
-  // sigaddset(&mask, SIGHUP);
-  // sigaddset(&mask, SIGUSR1);
-  // sigaddset(&mask, SIGUSR2);
-  // sigaddset(&mask, SIGALRM);
-  // sigaddset(&mask, SIGQUIT);
-  sigfillset(&mask); // Note : correct ?
+  sigemptyset(&mask);
+  sigaddset(&mask, SIGINT);
+  sigaddset(&mask, SIGHUP);
+  sigaddset(&mask, SIGUSR1);
+  sigaddset(&mask, SIGUSR2);
+  sigaddset(&mask, SIGALRM);
+  sigaddset(&mask, SIGQUIT);
+  sigaddset(&mask, SIGCHLD);
+  // sigfillset(&mask); // Note : correct ?
+  // sigdelset(&mask, SIGINT);
   sigprocmask(SIG_SETMASK, &mask, NULL);
 
   // Creation de threadPacGom, threadScore, threadPacman, threadEvent, threadBonus, threadCompteurFantomes et threadVies
@@ -169,6 +175,7 @@ int main(int argc,char* argv[])
   pthread_cond_destroy(&condNbPacGom);
   pthread_cond_destroy(&condScore);
   pthread_cond_destroy(&condNbFantomes);
+  pthread_cond_destroy(&condMode);
   messageSucces("MAIN", "condNbPacGom, condScore et condNbFantomes supprimees");
 
   messageInfo("MAIN", "Attente de 1500 millisecondes...");
@@ -340,6 +347,7 @@ void* threadPacMan(void *pParam)
 
   int nouveauL, nouveauC, nouvelleDir, ancienneDir;
   int delaiLocal;
+  int secondesRestantes = 0;
 
   // Demasquage des signaux SIGINT, SIGHUP, SIGUSR1 et SIGUSR2
   sigemptyset(&maskPacMan);
@@ -389,7 +397,7 @@ void* threadPacMan(void *pParam)
     // Si le prochain emplacement n'est pas un mur
     if (tab[nouveauL][nouveauC].presence != MUR)
     {
-      detecterProchaineCasePacMan(nouveauL, nouveauC);
+      detecterProchaineCasePacMan(nouveauL, nouveauC, secondesRestantes);
 
       // On deplace le Pac-Man avec la nouvelle direction
       changerPositionPacMan(nouveauL, nouveauC, nouvelleDir, maskPacMan);
@@ -403,7 +411,7 @@ void* threadPacMan(void *pParam)
       // Si le prochain emplacement avec l'ancienne direction n'est pas un mur
       if (tab[nouveauL][nouveauC].presence != MUR)
       {
-        detecterProchaineCasePacMan(nouveauL, nouveauC);
+        detecterProchaineCasePacMan(nouveauL, nouveauC, secondesRestantes);
 
         // On deplace le Pac-Man avec l'ancienne direction
         changerPositionPacMan(nouveauL, nouveauC, ancienneDir, maskPacMan);
@@ -459,8 +467,10 @@ void calculerCoord(int direction, int *nouveauL, int *nouveauC)
   }
 }
 
-void detecterProchaineCasePacMan(int l, int c)
+void detecterProchaineCasePacMan(int l, int c, int secondesRestantes)
 {
+  // int *nbSecondes = (int *)malloc(sizeof(int));
+
   switch (tab[l][c].presence)
   {
     case PACGOM:
@@ -478,14 +488,14 @@ void detecterProchaineCasePacMan(int l, int c)
       mode = 2;
       pthread_mutex_unlock(&mutexMode);
       // Creer un threadTimeOut
-      int nbSecondes;
-      nbSecondes = 0;
+      secondesRestantes = 0;
+
       if (tidTimeOut)
       {
         pthread_kill(tidTimeOut, SIGQUIT);
-        nbSecondes = alarm(0);
+        secondesRestantes = alarm(0);
       }
-      pthread_create(&tidTimeOut, NULL, threadTimeOut, &nbSecondes);
+      pthread_create(&tidTimeOut, NULL, threadTimeOut, &secondesRestantes);
       pthread_detach(tidTimeOut);
       break;
 
@@ -494,13 +504,36 @@ void detecterProchaineCasePacMan(int l, int c)
       break;
 
     case FANTOME:
-      pthread_mutex_unlock(&mutexTab);
-      // Tuer le Pac-Man
-      EffaceCarre(L, C);
-      setTab(L, C, VIDE);
+      pthread_mutex_lock(&mutexMode);
+      // Si on est dans le mode normal
+      if (mode == 1)
+      {
+        pthread_mutex_unlock(&mutexMode);
+        pthread_mutex_unlock(&mutexTab);
 
-      messageInfo("PACMAN", "Le Pac-Man a ete mange par un Fantome");
-      pthread_exit(NULL);
+        // Tuer le Pac-Man
+        EffaceCarre(L, C);
+        setTab(L, C, VIDE);
+
+        messageInfo("PACMAN", "Le Pac-Man a ete mange par un Fantome");
+        pthread_exit(NULL);
+      }
+      else // Si on est dans le mode Fantomes comestibles
+      {
+        pthread_mutex_unlock(&mutexMode);
+
+        // Tuer le Fantome
+        pthread_kill(tab[l][c].tid, SIGCHLD);
+
+        for (int i = 0; i < 8; i++)
+        {
+          if (tidFantomes[i] == tab[l][c].tid)
+          {
+            tidFantomes[i] = 0;
+          }
+        }
+      }
+      
       break;
   }
 }
@@ -515,7 +548,11 @@ void diminuerNbPacGom()
 
 void augmenterScore(int augmentation)
 {
-  pthread_mutex_lock(&mutexScore); // Note : oblige ?
+  printf("Attente de mutesScore\n");
+  fflush(stdout);
+  pthread_mutex_lock(&mutexScore);
+  printf("Attente de mutesScore finie\n");
+  fflush(stdout);
   score += augmentation;
   MAJScore = true; // Indiquer que le score a ete mis a jour
   pthread_mutex_unlock(&mutexScore);
@@ -728,7 +765,13 @@ void* threadCompteurFantomes(void *pParam)
     }
     pthread_mutex_unlock(&mutexNbFantomes);
 
-    // Note : Faire un pthread_cond_signal quand un Fantome est tue
+    pthread_mutex_lock(&mutexMode);
+    // Tant qu'on n'est dans le mode Fantomes comestibles
+    while (mode == 2)
+    {
+        pthread_cond_wait(&condMode, &mutexMode);
+    }
+    pthread_mutex_unlock(&mutexMode);
 
     creerFantome(structFantomes);
   }
@@ -792,7 +835,7 @@ void creerFantome(S_FANTOME *structFantomes[8])
   }
 }
 
-// Non necessaire, car on a pthread_key_create(&cle, free) ?
+// Non necessaire, car on a pthread_key_create(&, free) ?
 void cleanupStructFantomes(void *pStructFantomes)
 {
   S_FANTOME **ppStructFantomes = (S_FANTOME **)pStructFantomes;
@@ -824,8 +867,26 @@ void* threadFantome(void *pParam)
 
   pthread_setspecific(cle, pStructFantome);
 
+  pthread_cleanup_push(cleanupFantome, 0);
+
+  // Demasquage du signal SIGCHLD
+  sigset_t mask;
+  sigemptyset(&mask);
+  sigaddset(&mask, SIGCHLD);
+  pthread_sigmask(SIG_UNBLOCK, &mask, NULL); // Note : On pourrait mettre SIG_SETMASK
+
+  // Armement des signaux SIGCHLD
+  struct sigaction sa;
+  sa.sa_handler = handlerSIGCHLD;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = 0;
+
+  if (sigaction(SIGCHLD, &sa, NULL) == -1)
+  {
+    messageErreur("FANTOME", "Erreur de sigaction. Le signal SIGCHLD ne fonctionnera pas.\n");
+  }
+
   // Tant qu'il y a un Fantome sur la case de depart
-  // Note : Necessaire ?
   while (caseDepartOccupee)
   {
     pthread_mutex_lock(&mutexTab);
@@ -891,9 +952,11 @@ void* threadFantome(void *pParam)
           break;
       }
 
+      pthread_mutex_lock(&mutexMode);
       // Si on est dans le mode normal
       if (mode == 1)
       {
+        pthread_mutex_unlock(&mutexMode);
         if (tab[nouveauL][nouveauC].presence != MUR && tab[nouveauL][nouveauC].presence != FANTOME)
         {
           // Restaurer l'ancienne case
@@ -923,8 +986,9 @@ void* threadFantome(void *pParam)
           tentative++;
         }
       }
-      else // Si on est dans le mode Fantomes Comestibles
+      else // Si on est dans le mode Fantomes comestibles
       {
+        pthread_mutex_unlock(&mutexMode);
         // S'il n'y a pas de mur, de fantome ou le PacMan dans cette direction
         if (tab[nouveauL][nouveauC].presence != MUR && tab[nouveauL][nouveauC].presence != FANTOME && tab[nouveauL][nouveauC].presence != PACMAN)
         {
@@ -959,6 +1023,9 @@ void* threadFantome(void *pParam)
 
     pthread_mutex_unlock(&mutexTab);
   }
+
+  // Jamais atteint
+  pthread_cleanup_pop(1);
 }
 
 void restaurerAncienneCase(int *l, int *c, int *cache)
@@ -1021,18 +1088,84 @@ void detecterProchaineCaseFantome(int nouveauL, int nouveauC, int *cache)
   }
 }
 
+void handlerSIGCHLD(int signal)
+{
+  pthread_exit(NULL);
+}
+
+void cleanupFantome(void *pParam)
+{
+  // printf("1\n");
+  // fflush(stdout);
+
+  // augmenterScore(50);
+
+  // printf("2\n");
+  // fflush(stdout);
+
+  // S_FANTOME *pStructFantome = (S_FANTOME *)pthread_getspecific(cle); 
+
+  // printf("3\n");
+  // fflush(stdout);
+  // switch (pStructFantome->cache)
+  // {
+  //   case PACGOM:
+  //     diminuerNbPacGom();
+  //     augmenterScore(1);
+  //     break;
+
+  //   case SUPERPACGOM:
+  //     diminuerNbPacGom();
+  //     augmenterScore(5);
+  //     break;
+
+  //   case BONUS:
+  //     augmenterScore(30);
+  //     break;
+  // }
+
+  // printf("4\n");
+  // fflush(stdout);
+  // pthread_mutex_lock(&mutexNbFantomes);
+  // switch (pStructFantome->couleur)
+  // {
+  //   case ROUGE:
+  //     nbRouge--;
+  //     break;
+
+  //   case VERT:
+  //     nbVert--;
+  //     break;
+
+  //   case MAUVE:
+  //     nbMauve--;
+  //     break;
+
+  //   case ORANGE:
+  //     nbOrange--;
+  //     break;
+  // }
+  // pthread_mutex_unlock(&mutexNbFantomes);
+  // pthread_cond_signal(&condNbFantomes);
+
+  // printf("5\n");
+  // fflush(stdout);
+}
+
 // *********************** Gestion des vies du Pac-Man ***********************
 
 void* threadTimeOut(void *pParam)
 {
   messageSucces("TIMEOUT", "Thread cree");
+
+  // Demasquage des signaux SIGALRM et SIGQUIT
   sigset_t mask;
   sigemptyset(&mask);
   sigaddset(&mask, SIGALRM);
   sigaddset(&mask, SIGQUIT);
   pthread_sigmask(SIG_UNBLOCK, &mask, NULL); // Note : On pourrait mettre SIG_SETMASK
 
-  // Armement des signaux SIGINT, SIGHUP, SIGUSR1 et SIUSR2
+  // Armement du signal SIGQUIT
   struct sigaction sa;
   sa.sa_handler = handlerSIGQUIT;
   sigemptyset(&sa.sa_mask);
@@ -1056,7 +1189,9 @@ void* threadTimeOut(void *pParam)
     pthread_exit(NULL);
   }
 
-  int nbSecondes = 8 + rand() % 8 + *(int *)pParam;
+  int *nbSecondesRestantes = (int *)pParam;
+  int nbSecondes = 8 + rand() % 8 + *nbSecondesRestantes;
+  // free((int *)pParam);
   printf("nbSecondes = %d\n", nbSecondes); // Note : A enlever
   fflush(stdout);
 
@@ -1183,9 +1318,8 @@ void* threadEvent(void *pParam)
   // Annuler tous les threads, sauf les threadFantome
   annulerThreads();
   // Annuler tous les threadFantome
-  printf("Annulation de tous les threadFantome\n");
-  fflush(stdout);
   annulerThreadsFantomes();
+  annulerThreadCompteurFantomes();
 
   pthread_exit(NULL);
 }
@@ -1204,12 +1338,11 @@ void annulerThreads()
   }
 
   // Annulation de threadPacGom, threadScore, threadBonus, threadCompteurFantomes et threadVies
-  if (pthread_cancel(tidPacGom) == 0 && pthread_cancel(tidScore) == 0 && pthread_cancel(tidBonus) == 0 && pthread_cancel(tidCompteurFantomes) == 0)
+  if (pthread_cancel(tidPacGom) == 0 && pthread_cancel(tidScore) == 0 && pthread_cancel(tidBonus) == 0)
   {
     pthread_join(tidPacGom, NULL);
     pthread_join(tidScore, NULL);
     pthread_join(tidBonus, NULL);
-    pthread_join(tidCompteurFantomes, NULL);
     messageSucces("EVENT", "threadPacGom, threadScore, threadBonus, threadCompteurFantomes et threadVies ont ete annule");
   }
   else
@@ -1234,6 +1367,19 @@ void annulerThreads()
   else
   {
     messageInfo("EVENT", "threadPacMan inexistant. Il ne sera donc pas annule.");
+  }
+}
+
+void annulerThreadCompteurFantomes()
+{
+  if (pthread_cancel(tidCompteurFantomes) == 0)
+  {
+    pthread_join(tidCompteurFantomes, NULL);
+    messageSucces("EVENT", "threadCompteurFantomes a ete annule");
+  }
+  else
+  {
+    messageErreur("EVENT", "threadCompteurFantomes n'a pas pu etre annule");
   }
 }
 
