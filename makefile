@@ -3,7 +3,7 @@
 GRILLESDL = GrilleSDL
 RESSOURCES = Ressources
 
-CC = g++ -I$(GRILLESDL) -I$(RESSOURCES)
+CC = g++ -Wall -I$(GRILLESDL) -I$(RESSOURCES)
 OBJS = $(GRILLESDL)/GrilleSDL.o $(RESSOURCES)/Ressources.o
 PROGRAMS = PacMan
 

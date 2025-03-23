@@ -9,8 +9,8 @@
 
 // Macros pour les direction de Pac-Man et des fantomes
 #define HAUT                      500000
-#define BAS                       500001
-#define GAUCHE                    500002
+#define GAUCHE                    500001
+#define BAS                       500002
 #define DROITE                    500003
 
 int  OuvertureFenetreGraphique();

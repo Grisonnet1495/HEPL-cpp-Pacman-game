@@ -127,7 +127,7 @@ int FermerGrilleSDL()
   // Liberation memoire pour les differents sprites
   for (i=0 ; i<60 ; i++)
     if (maGrille.sprites[i].occupe) SDL_FreeSurface(maGrille.sprites[i].surface);
-    printf("2\n");
+  printf("2\n");
   
   // Liberation memoire pour l'image de fond
   if (maGrille.fond != NULL) SDL_FreeSurface(maGrille.fond);

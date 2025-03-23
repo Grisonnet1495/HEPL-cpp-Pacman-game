@@ -41,8 +41,8 @@ typedef struct {
 S_CASE tab[NB_LIGNE][NB_COLONNE];
 
 
-pthread_t tidPacGom, tidPacMan = 0, tidScore, tidEvent, tidBonus, tidCompteurFantomes, tidVies, tidFantomes[8] = { 0 }; // Note : tidEvent peut etre dans le main
-pthread_mutex_t mutexTab, mutexDelai, mutexNbPacGom, mutexScore, mutexLC, mutexNbFantomes; // Note : mutexLC utile ?
+pthread_t tidPacGom, tidPacMan = 0, tidScore, tidEvent, tidBonus, tidCompteurFantomes, tidVies, tidTimeOut = 0, tidFantomes[8] = { 0 }; // Note : tidEvent peut etre dans le main
+pthread_mutex_t mutexTab, mutexDelai, mutexNbPacGom, mutexScore, mutexNbFantomes, mutexMode;
 pthread_cond_t condNbPacGom, condScore, condNbFantomes;
 pthread_key_t cle;
 sigset_t maskPacMan; // Note : Est-ce bien que ce soit en global ?
@@ -50,6 +50,7 @@ bool MAJScore = true;
 int L, C, dir; // Position et direction du PacMan
 int nbPacGom, delai = 300, score = 0;
 int nbRouge = 0, nbVert = 0, nbMauve = 0, nbOrange = 0;
+int mode = 1;
 
 void* threadPacGom(void *pParam);
 void initialiserPacGoms();
@@ -62,7 +63,7 @@ void detecterProchaineCasePacMan(int l, int c);
 void diminuerNbPacGom();
 void augmenterScore(int augmentation);
 void changerPositionPacMan(int nouveauL, int nouveauC, int direction, sigset_t mask);
-void tuerPacMan();
+// void tuerPacMan();
 void handlerSignaux(int signal);
 void* threadScore(void *pParam);
 void* threadBonus(void *pParam);
@@ -72,6 +73,9 @@ void cleanupStructFantomes(void *pStructFantomes);
 void* threadFantome(void *pParam);
 void restaurerAncienneCase(int *l, int *c, int *cache);
 void detecterProchaineCaseFantome(int nouveauL, int nouveauC, int *cache);
+void* threadTimeOut(void *pParam);
+void handlerSIGQUIT(int signal);
+void handlerSIGALRM(int signal);
 void* threadVies(void *pParam);
 void cleanupMutexTab(void *p);
 void* threadEvent(void *pParam);
@@ -88,8 +92,8 @@ void messageErreur(const char* nomThread, const char *message);
 
 int main(int argc,char* argv[])
 {
-  struct sigaction sigAct;
-  char ok;
+  // struct sigaction sigAct; // Note : A utiliser ?
+  // char ok; // Note : A utiliser ?
  
   srand((unsigned)time(NULL));
 
@@ -115,12 +119,12 @@ int main(int argc,char* argv[])
   // DessineBonus(5, 15);
 
   // Initialisation des mutex
-  if (pthread_mutex_init(&mutexTab, NULL) != 0 || pthread_mutex_init(&mutexDelai, NULL) != 0 || pthread_mutex_init(&mutexNbPacGom, NULL) != 0 || pthread_mutex_init(&mutexScore, NULL) != 0 || pthread_mutex_init(&mutexLC, NULL) != 0 || pthread_mutex_init(&mutexNbFantomes, NULL) != 0)
+  if (pthread_mutex_init(&mutexTab, NULL) != 0 || pthread_mutex_init(&mutexDelai, NULL) != 0 || pthread_mutex_init(&mutexNbPacGom, NULL) != 0 || pthread_mutex_init(&mutexScore, NULL) != 0 || pthread_mutex_init(&mutexNbFantomes, NULL) != 0 || pthread_mutex_init(&mutexMode, NULL) != 0)
   {
     messageErreur("MAIN", "Erreur de phtread_mutex_init");
     exit(1);
   }
-  messageSucces("MAIN", "Initialisation de mutexTab, mutexDelai, mutexNbPacGom, mutexScore, mutexLC et mutexNbFantomes reussie");
+  messageSucces("MAIN", "Initialisation de mutexTab, mutexDelai, mutexNbPacGom, mutexScore et mutexNbFantomes reussie");
 
   if (pthread_cond_init(&condNbPacGom, NULL) != 0 || pthread_cond_init(&condScore, NULL) != 0 || pthread_cond_init(&condNbFantomes, NULL) != 0)
   {
@@ -129,13 +133,16 @@ int main(int argc,char* argv[])
   }
   messageSucces("MAIN", "Initialisation de condNbPacGom, condScore et condNbFantomes reussie");
 
-  // Masquage des signaux SIGINT, SIGHUP, SIGUSR1 et SIGUSR2
+  // Masquage des signaux SIGINT, SIGHUP, SIGUSR1, SIGUSR2, SIGALRM et SIGQUIT
   sigset_t mask;
-  sigemptyset(&mask);
-  sigaddset(&mask, SIGINT);
-  sigaddset(&mask, SIGHUP);
-  sigaddset(&mask, SIGUSR1);
-  sigaddset(&mask, SIGUSR2);
+  // sigemptyset(&mask);
+  // sigaddset(&mask, SIGINT);
+  // sigaddset(&mask, SIGHUP);
+  // sigaddset(&mask, SIGUSR1);
+  // sigaddset(&mask, SIGUSR2);
+  // sigaddset(&mask, SIGALRM);
+  // sigaddset(&mask, SIGQUIT);
+  sigfillset(&mask); // Note : correct ?
   sigprocmask(SIG_SETMASK, &mask, NULL);
 
   // Creation de threadPacGom, threadScore, threadPacman, threadEvent, threadBonus, threadCompteurFantomes et threadVies
@@ -154,8 +161,8 @@ int main(int argc,char* argv[])
   pthread_mutex_destroy(&mutexDelai);
   pthread_mutex_destroy(&mutexNbPacGom);
   pthread_mutex_destroy(&mutexScore);
-  pthread_mutex_destroy(&mutexLC);
   pthread_mutex_destroy(&mutexNbFantomes);
+  pthread_mutex_destroy(&mutexMode);
   messageSucces("MAIN", "mutexTab, mutexDelai, mutexNbPacGom, mutexScore, mutexLC et mutexNbFantomes supprimes");
 
   // Suppresion des variables de condition
@@ -242,7 +249,7 @@ void initialiserPacGoms()
   }
 
   // Vider les cases devant etre vide
-  for (int i = 0; i < (sizeof(tabPosVide) / sizeof(tabPosVide[0])); i++)
+  for (unsigned long int i = 0; i < (sizeof(tabPosVide) / sizeof(tabPosVide[0])); i++)
   {
     l = tabPosVide[i][0];
     c = tabPosVide[i][1];
@@ -256,19 +263,19 @@ void initialiserPacGoms()
   }
 
   // Ajouter les super Pac-Goms
-  // for (int i = 0; i < (sizeof(tabPosSuperPacGoms) / sizeof(tabPosSuperPacGoms[0])); i++)
-  // {
-  //   l = tabPosSuperPacGoms[i][0];
-  //   c = tabPosSuperPacGoms[i][1];
+  for (unsigned long int i = 0; i < (sizeof(tabPosSuperPacGoms) / sizeof(tabPosSuperPacGoms[0])); i++)
+  {
+    l = tabPosSuperPacGoms[i][0];
+    c = tabPosSuperPacGoms[i][1];
 
-  //   if (tab[l][c].presence != PACGOM) // Si on n'a pas rempli toute les cases vides avec des Pac-Goms
-  //   {
-  //     nbPacGom++;
-  //   }
+    if (tab[l][c].presence != PACGOM) // Si on n'a pas rempli toute les cases vides avec des Pac-Goms
+    {
+      nbPacGom++;
+    }
 
-  //   setTab(l, c, SUPERPACGOM);
-  //   DessineSuperPacGom(l,c);
-  // }
+    setTab(l, c, SUPERPACGOM);
+    DessineSuperPacGom(l,c);
+  }
 
   pthread_mutex_unlock(&mutexTab);
 }
@@ -353,7 +360,7 @@ void* threadPacMan(void *pParam)
     messageErreur("PACMAN", "Erreur de sigaction. Des signaux pourraient ne pas fonctionner.\n");
   }
 
-  sigprocmask(SIG_SETMASK, &maskPacMan, NULL);
+  sigprocmask(SIG_BLOCK, &maskPacMan, NULL);
   pthread_mutex_lock(&mutexTab);
   placerPacManEtAttente();
   pthread_mutex_unlock(&mutexTab);
@@ -368,7 +375,7 @@ void* threadPacMan(void *pParam)
     pthread_mutex_unlock(&mutexDelai);
 
     // Attendre 300 millisecondes et puis la reception d'un signal
-    sigprocmask(SIG_SETMASK, &maskPacMan, NULL);
+    sigprocmask(SIG_BLOCK, &maskPacMan, NULL);
     Attente(delaiLocal);
     sigprocmask(SIG_UNBLOCK, &maskPacMan, NULL);
 
@@ -462,8 +469,24 @@ void detecterProchaineCasePacMan(int l, int c)
       break;
 
     case SUPERPACGOM:
+      printf("SuperPacGom mange\n");
+      fflush(stdout);
       diminuerNbPacGom();
       augmenterScore(5);
+      // Changer de mode
+      pthread_mutex_lock(&mutexMode);
+      mode = 2;
+      pthread_mutex_unlock(&mutexMode);
+      // Creer un threadTimeOut
+      int nbSecondes;
+      nbSecondes = 0;
+      if (tidTimeOut)
+      {
+        pthread_kill(tidTimeOut, SIGQUIT);
+        nbSecondes = alarm(0);
+      }
+      pthread_create(&tidTimeOut, NULL, threadTimeOut, &nbSecondes);
+      pthread_detach(tidTimeOut);
       break;
 
     case BONUS:
@@ -473,7 +496,11 @@ void detecterProchaineCasePacMan(int l, int c)
     case FANTOME:
       pthread_mutex_unlock(&mutexTab);
       // Tuer le Pac-Man
-      tuerPacMan();
+      EffaceCarre(L, C);
+      setTab(L, C, VIDE);
+
+      messageInfo("PACMAN", "Le Pac-Man a ete mange par un Fantome");
+      pthread_exit(NULL);
       break;
   }
 }
@@ -498,7 +525,7 @@ void augmenterScore(int augmentation)
 // Sert a mettre à jour la position du PacMan et son affichage
 void changerPositionPacMan(int nouveauL, int nouveauC, int direction, sigset_t mask)
 {
-  sigprocmask(SIG_SETMASK, &mask, NULL);
+  sigprocmask(SIG_BLOCK, &mask, NULL);
   setTab(L, C, VIDE);
   EffaceCarre(L, C);
 
@@ -510,22 +537,22 @@ void changerPositionPacMan(int nouveauL, int nouveauC, int direction, sigset_t m
   sigprocmask(SIG_UNBLOCK, &mask, NULL);
 }
 
-void tuerPacMan()
-{
-  EffaceCarre(L, C);
-  setTab(L, C, VIDE);
+// void tuerPacMan()
+// {
+//   EffaceCarre(L, C);
+//   setTab(L, C, VIDE);
 
-  // Si c'est le PacMan qui se tue
-  if (pthread_self() == tidPacMan)
-  {
-    messageInfo("PACMAN", "Le Pac-Man a ete mange par un Fantome");
-    pthread_exit(NULL);
-  }
+//   // Si c'est le PacMan qui se tue
+//   if (pthread_self() == tidPacMan)
+//   {
+//     messageInfo("PACMAN", "Le Pac-Man a ete mange par un Fantome");
+//     pthread_exit(NULL);
+//   }
 
-  // Si c'est le Fantome qui tue le PacMan
-  pthread_cancel(tidPacMan);
-  messageInfo("FANTOME", "Le Fantome a tue le Pac-Man");
-}
+//   // Si c'est le Fantome qui tue le PacMan
+//   pthread_cancel(tidPacMan);
+//   messageInfo("FANTOME", "Le Fantome a tue le Pac-Man");
+// }
 
 // Change la direction du Pac-Man a la reception d'un signal
 void handlerSignaux(int signal)
@@ -864,34 +891,69 @@ void* threadFantome(void *pParam)
           break;
       }
 
-      // S'il n'y a pas de mur ou de fantome dans cette direction
-      if (tab[nouveauL][nouveauC].presence != MUR && tab[nouveauL][nouveauC].presence != FANTOME)
+      // Si on est dans le mode normal
+      if (mode == 1)
       {
-        // Restaurer l'ancienne case
-        restaurerAncienneCase(l, c, cache);
-
-        // Detecter s'il y a quelque chose sur la prochaine case
-        detecterProchaineCaseFantome(nouveauL, nouveauC, cache);
-
-        // Avancer le Fantome
-        *l = nouveauL;
-        *c = nouveauC;
-        dir = nouvelleDir;
-
-        setTab(*l, *c, FANTOME, pthread_self());
-        DessineFantome(*l, *c, *couleur, dir);
-
-        caseSuivanteTrouvee = true;
-      }
-      else
-      {
-        // Generer une direction aleatoire
-        nouvelleDir = (rand() % 4) + 500000; // Note : Est-ce bien d'utiliser un nombre magique ?
-        if (tentative < 10 && nouvelleDir == dir) // Donne un mouvement plus naturel aux Fantômes en leur evitant au maximum de faire demi-tour
+        if (tab[nouveauL][nouveauC].presence != MUR && tab[nouveauL][nouveauC].presence != FANTOME)
         {
-          nouvelleDir = (nouvelleDir + 1) % 4 + 500000;
+          // Restaurer l'ancienne case
+          restaurerAncienneCase(l, c, cache);
+
+          // Detecter s'il y a quelque chose sur la prochaine case
+          detecterProchaineCaseFantome(nouveauL, nouveauC, cache);
+
+          // Avancer le Fantome
+          *l = nouveauL;
+          *c = nouveauC;
+          dir = nouvelleDir;
+
+          setTab(*l, *c, FANTOME, pthread_self());
+          DessineFantome(*l, *c, *couleur, dir);
+
+          caseSuivanteTrouvee = true;
         }
-        tentative++;
+        else
+        {
+          // Generer une direction aleatoire
+          nouvelleDir = (rand() % 4) + 500000; // Note : Est-ce bien d'utiliser un nombre magique ?
+          if (tentative < 10 && nouvelleDir == ((dir + 2) % 4) + 500000) // Donne un mouvement plus naturel aux Fantômes en leur evitant au maximum de faire demi-tour
+          {
+            nouvelleDir = (nouvelleDir + 1) % 4 + 500000;
+          }
+          tentative++;
+        }
+      }
+      else // Si on est dans le mode Fantomes Comestibles
+      {
+        // S'il n'y a pas de mur, de fantome ou le PacMan dans cette direction
+        if (tab[nouveauL][nouveauC].presence != MUR && tab[nouveauL][nouveauC].presence != FANTOME && tab[nouveauL][nouveauC].presence != PACMAN)
+        {
+          // Restaurer l'ancienne case
+          restaurerAncienneCase(l, c, cache);
+
+          // Detecter s'il y a quelque chose sur la prochaine case
+          detecterProchaineCaseFantome(nouveauL, nouveauC, cache);
+
+          // Avancer le Fantome
+          *l = nouveauL;
+          *c = nouveauC;
+          dir = nouvelleDir;
+
+          setTab(*l, *c, FANTOME, pthread_self());
+          DessineFantomeComestible(*l, *c);
+
+          caseSuivanteTrouvee = true;
+        }
+        else
+        {
+          // Generer une direction aleatoire
+          nouvelleDir = (rand() % 4) + 500000; // Note : Est-ce bien d'utiliser un nombre magique ?
+          if (tentative < 10 && nouvelleDir == ((dir + 2) % 4) + 500000) // Donne un mouvement plus naturel aux Fantômes en leur evitant au maximum de faire demi-tour
+          {
+            nouvelleDir = (nouvelleDir + 1) % 4 + 500000;
+          }
+          tentative++;
+        }
       }
     }
 
@@ -935,7 +997,15 @@ void detecterProchaineCaseFantome(int nouveauL, int nouveauC, int *cache)
 
     case PACMAN:
       // Si le Pac-Man ne s'est pas tue au meme moment, tuer le PacMan
-      if (tidPacMan) tuerPacMan();
+      if (tidPacMan)
+      {
+        EffaceCarre(nouveauL, nouveauC);
+        setTab(nouveauL, nouveauC, VIDE);
+
+        pthread_cancel(tidPacMan);
+        messageInfo("FANTOME", "Le Fantome a tue le Pac-Man");
+      }
+      
       break;
 
     case PACGOM:
@@ -949,6 +1019,74 @@ void detecterProchaineCaseFantome(int nouveauL, int nouveauC, int *cache)
     case BONUS:
       *cache = BONUS;
   }
+}
+
+// *********************** Gestion des vies du Pac-Man ***********************
+
+void* threadTimeOut(void *pParam)
+{
+  messageSucces("TIMEOUT", "Thread cree");
+  sigset_t mask;
+  sigemptyset(&mask);
+  sigaddset(&mask, SIGALRM);
+  sigaddset(&mask, SIGQUIT);
+  pthread_sigmask(SIG_UNBLOCK, &mask, NULL); // Note : On pourrait mettre SIG_SETMASK
+
+  // Armement des signaux SIGINT, SIGHUP, SIGUSR1 et SIUSR2
+  struct sigaction sa;
+  sa.sa_handler = handlerSIGQUIT;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = 0;
+
+  if (sigaction(SIGQUIT, &sa, NULL) == -1)
+  {
+    messageErreur("TIMEOUT", "Erreur de sigaction\n");
+    tidTimeOut = 0;
+    pthread_exit(NULL);
+  }
+
+  sa.sa_handler = handlerSIGALRM;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = 0;
+
+  if (sigaction(SIGALRM, &sa, NULL) == -1)
+  {
+    messageErreur("TIMEOUT", "Erreur de sigaction\n");
+    tidTimeOut = 0;
+    pthread_exit(NULL);
+  }
+
+  int nbSecondes = 8 + rand() % 8 + *(int *)pParam;
+  printf("nbSecondes = %d\n", nbSecondes); // Note : A enlever
+  fflush(stdout);
+
+  alarm(nbSecondes);
+  printf("Mise en pause\n");
+  fflush(stdout);
+  pause(); // Note : Comment arreter la pause ?
+  printf("Signal recu\n");
+  fflush(stdout);
+  pthread_mutex_lock(&mutexMode);
+  mode = 1;
+  pthread_mutex_unlock(&mutexMode);
+  printf("Mode = 1\n");
+  fflush(stdout);
+
+  tidTimeOut = 0;
+  messageSucces("TIMEOUT", "Le thread se termine");
+  pthread_exit(NULL);
+}
+
+void handlerSIGQUIT(int signal)
+{
+  messageInfo("TIMEOUT", "Signal SIGQUIT recu");
+  pthread_exit(NULL);
+}
+
+void handlerSIGALRM(int signal)
+{
+  messageInfo("TIMEOUT", "Signal SIGALRM recu");
+  // Message qui ne sert rien, juste pour reduire le code
 }
 
 // *********************** Gestion des vies du Pac-Man ***********************
@@ -1143,7 +1281,8 @@ void setTab(int l, int c, int presence, pthread_t tid) {
 
 // *********************** Fonction pour initialiser la table ***********************
 
-void DessineGrilleBase() {
+void DessineGrilleBase()
+{
   int t[NB_LIGNE][NB_COLONNE]
     = { {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1},
         {1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1},
