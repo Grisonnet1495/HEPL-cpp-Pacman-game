@@ -152,6 +152,9 @@ int main(int argc,char* argv[])
   // sigdelset(&mask, SIGINT);
   sigprocmask(SIG_SETMASK, &mask, NULL);
 
+  // Creation d'une cle pour des variables specifiques
+  pthread_key_create(&cle, NULL);
+
   // Creation de threadPacGom, threadScore, threadPacman, threadEvent, threadBonus, threadCompteurFantomes et threadVies
   pthread_create(&tidPacGom, NULL, threadPacGom, NULL);
   pthread_create(&tidScore, NULL, threadScore, NULL);
@@ -168,11 +171,15 @@ int main(int argc,char* argv[])
   FermetureFenetreGraphique();
   messageSucces("MAIN", "Fenetre graphique fermee");
 
-  // Annuler tous les threads, sauf les threadFantome
+  // Annuler tous les threads principaux
   annulerThreads();
   // Annuler tous les threadFantome
   annulerThreadsFantomes();
+  // Annuler les autres threads
   annulerAutresThreads();
+
+  // Suppression de la cle pour les variables specifiques
+  pthread_key_delete(cle);
 
   // Suppression des mutex
   pthread_mutex_destroy(&mutexTab);
@@ -485,8 +492,6 @@ void detecterProchaineCasePacMan(int l, int c)
       break;
 
     case SUPERPACGOM:
-      printf("SuperPacGom mange\n");
-      fflush(stdout);
       diminuerNbPacGom();
       augmenterScore(5);
       // Changer de mode
@@ -554,17 +559,11 @@ void diminuerNbPacGom()
 
 void augmenterScore(int augmentation)
 {
-  printf("Attente de mutexScore\n");
-  fflush(stdout);
   pthread_mutex_lock(&mutexScore);
-  printf("Attente de mutexScore finie\n");
-  fflush(stdout);
   score += augmentation;
   MAJScore = true; // Indiquer que le score a ete mis a jour
   pthread_mutex_unlock(&mutexScore);
   pthread_cond_signal(&condScore);
-  printf("condScore envoyee\n");
-  fflush(stdout);
 }
 
 // Sert a mettre à jour la position du PacMan et son affichage
@@ -581,23 +580,6 @@ void changerPositionPacMan(int nouveauL, int nouveauC, int direction, sigset_t m
   DessinePacMan(L, C, direction);
   sigprocmask(SIG_UNBLOCK, &mask, NULL);
 }
-
-// void tuerPacMan()
-// {
-//   EffaceCarre(L, C);
-//   setTab(L, C, VIDE);
-
-//   // Si c'est le PacMan qui se tue
-//   if (pthread_self() == tidPacMan)
-//   {
-//     messageInfo("PACMAN", "Le Pac-Man a ete mange par un Fantome");
-//     pthread_exit(NULL);
-//   }
-
-//   // Si c'est le Fantome qui tue le PacMan
-//   pthread_cancel(tidPacMan);
-//   messageInfo("FANTOME", "Le Fantome a tue le Pac-Man");
-// }
 
 // Change la direction du Pac-Man a la reception d'un signal
 void handlerSignaux(int signal)
@@ -632,23 +614,13 @@ void* threadScore(void *pParam)
   {
     pthread_testcancel();
 
-    printf("1 bis\n");
-    fflush(stdout);
     pthread_mutex_lock(&mutexScore);
-    printf("2 bis\n");
-    fflush(stdout);
     // Tant qu'il y a des Pac-Goms
     while (MAJScore == false)
     {
-      printf("3 bis\n");
-      fflush(stdout);
       pthread_cond_wait(&condScore, &mutexScore); // Attendre un changement du score
-      printf("4 bis\n");
-      fflush(stdout);
     }
     pthread_mutex_unlock(&mutexScore);
-    printf("5 bis\n");
-    fflush(stdout);
 
     // Mettre a jour le score
     DessineChiffre(16, 22, score / 1000);
@@ -743,31 +715,7 @@ void* threadCompteurFantomes(void *pParam)
   
   static S_FANTOME *structFantomes[8];
 
-  // int i, j;
   int delaiLocal;
-
-  // // Allouer la memoire pour les structures Fantome
-  // for (i = 0; i < 8; i++)
-  // {
-  //   structFantomes[i] = (S_FANTOME*)malloc(sizeof(S_FANTOME));
-
-  //   // Si la memoire n'a pas ete alloue, liberer la memoire et arreter le thread
-  //   if (structFantomes[i] == NULL)
-  //   {
-  //     for (j = 0; j < i; j++)
-  //     {
-  //         free(structFantomes[j]);
-  //     }
-
-  //     pthread_exit(NULL);
-  //   }
-  // }
-
-  // Mettre en place la fonction de liberation de la memoire
-  pthread_cleanup_push(cleanupStructFantomes, (void*)structFantomes);
-
-  // Creation d'une cle pour des variables specifiques
-  pthread_key_create(&cle, NULL);
 
   // Boucle principale
   while (1)
@@ -845,20 +793,12 @@ void* threadCompteurFantomes(void *pParam)
       messageErreur("COMPTEURFANTOMES", "Erreur de pthread_create");
     }
   }
-
-  // Jamais atteint
-  pthread_cleanup_pop(1);
 }
-
-// void creerFantome(S_FANTOME *structFantomes[8])
-// {
-  
-// }
 
 void allouerStructFantome(S_FANTOME *structFantomes[8], int i, int couleur)
 {
   int j;
-  
+
   structFantomes[i] = (S_FANTOME*)malloc(sizeof(S_FANTOME));
 
   // Si la memoire n'a pas ete alloue, liberer la memoire et arreter le thread
@@ -876,23 +816,6 @@ void allouerStructFantome(S_FANTOME *structFantomes[8], int i, int couleur)
   structFantomes[i]->L = 9;
   structFantomes[i]->C = 8;
   structFantomes[i]->cache = VIDE;
-}
-
-// Non necessaire, car on a pthread_key_create(&, free) ?
-void cleanupStructFantomes(void *pStructFantomes)
-{
-  S_FANTOME **ppStructFantomes = (S_FANTOME **)pStructFantomes;
-
-  int i;
-
-  for (i = 0; i < 8; i++)
-  {
-    free(ppStructFantomes[i]);
-  }
-
-  pthread_key_delete(cle);
-
-  messageSucces("COMPTEURFANTOMES", "Memoire allouee pour les structures S_FANTOME liberee");
 }
 
 // *********************** Gestion d'un Fantome ***********************
@@ -1146,7 +1069,7 @@ void cleanupFantome(void *pParam)
   // printf("1\n");
   // fflush(stdout);
 
-  // S_FANTOME *pStructFantome = (S_FANTOME *)pthread_getspecific(cle); 
+  S_FANTOME *pStructFantome = (S_FANTOME *)pthread_getspecific(cle); 
 
   // printf("2\n");
   // fflush(stdout);
@@ -1201,6 +1124,9 @@ void cleanupFantome(void *pParam)
 
   // printf("5\n");
   // fflush(stdout);
+  free(pStructFantome);
+  messageSucces("FANTOME", "Memoire allouee pour structFantome liberee");
+
   return;
 }
 
@@ -1242,28 +1168,18 @@ void* threadTimeOut(void *pParam)
   }
 
   int nbSecondesRestantes = *(int *)pParam;
-  printf("nbSecondesRestantes = %d\n", nbSecondesRestantes); // Note : A enlever
-  fflush(stdout);
   int nbSecondes = 8 + rand() % 8 + nbSecondesRestantes;
   free(pParam);
-  printf("nbSecondes = %d\n", nbSecondes); // Note : A enlever
-  fflush(stdout);
 
   alarm(nbSecondes);
-  printf("Mise en pause\n");
-  fflush(stdout);
 
   pthread_testcancel();
 
   pause();
-  printf("Signal recu\n");
-  fflush(stdout);
   pthread_mutex_lock(&mutexMode);
   mode = 1;
   pthread_mutex_unlock(&mutexMode);
   pthread_cond_signal(&condNbFantomes);
-  printf("Mode = 1\n");
-  fflush(stdout);
 
   tidTimeOut = 0;
   messageSucces("TIMEOUT", "Le thread se termine");
@@ -1279,7 +1195,6 @@ void handlerSIGQUIT(int signal)
 void handlerSIGALRM(int signal)
 {
   messageInfo("TIMEOUT", "Signal SIGALRM recu");
-  // Message qui ne sert rien, juste pour reduire le code
 }
 
 // *********************** Gestion des vies du Pac-Man ***********************
@@ -1287,7 +1202,6 @@ void handlerSIGALRM(int signal)
 void* threadVies(void *pParam)
 {
   messageSucces("VIES", "Thread cree");
-  // pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL); // Empeche que le thread ne puisse pas etre annule s'il est bloque sur un mutex.
   
   int nbVies = 3;
 
@@ -1318,7 +1232,6 @@ void* threadVies(void *pParam)
   pthread_mutex_lock(&mutexTab); // Le mutex n'est jamais libere
   DessineGameOver(9, 4);
 
-  // tidVies = 0; // A enlever, car bloque l'arret du jeu
   pthread_exit(NULL);
 }
 
