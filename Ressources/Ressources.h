@@ -24,5 +24,6 @@ void DessineSuperPacGom(int l,int c);
 void DessineBonus(int l,int c);
 void DessineChiffre(int l,int c,int val);
 void DessineGameOver(int l,int c);
+void DessineVictory(int l,int c);
 
 #endif

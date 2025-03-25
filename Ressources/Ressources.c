@@ -44,6 +44,7 @@
 #define S_CHIFFRE_9                300039
 
 #define S_GAMEOVER                 300040
+#define S_VICTORY                 300041
 
 void ChargementImages()
 {
@@ -92,6 +93,7 @@ void ChargementImages()
   AjouteSprite(S_CHIFFRE_9,"./images/Neuf32.bmp");  
 
   AjouteSpriteAFondTransparent(S_GAMEOVER,"./images/GameOver.bmp",255,255,255);
+  AjouteSprite(S_VICTORY,"./images/Victory.bmp");
 }
 
 // Fonctions Ressources
@@ -207,3 +209,7 @@ void DessineGameOver(int l,int c)
   DessineSprite(l,c,S_GAMEOVER);
 }
 
+void DessineVictory(int l,int c)
+{
+  DessineSprite(l,c,S_VICTORY);
+}

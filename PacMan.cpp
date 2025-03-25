@@ -25,6 +25,8 @@
 #define LENTREE 15
 #define CENTREE 8
 
+#define NIVEAUMAX 2
+
 typedef struct
 {
   int L;
@@ -56,7 +58,7 @@ int mode = 1;
 void* threadPacGom(void *pParam);
 void initialiserPacGoms();
 void afficherNbPacGoms();
-void augmenterNiveau(int *niveau);
+void augmenterNiveau();
 void* threadPacMan(void *pParam);
 void placerPacManEtAttente();
 void calculerCoord(int direction, int *nouveauL, int *nouveauC);
@@ -81,8 +83,7 @@ void handlerSIGALRM(int signal);
 void* threadVies(void *pParam);
 void cleanupMutexTab(void *p);
 void* threadEvent(void *pParam);
-void annulerThreads();
-void annulerAutreThreads();
+void annulerAutresThreads();
 void annulerThreadsFantomes();
 void DessineGrilleBase();
 void Attente(int milli);
@@ -174,12 +175,10 @@ int main(int argc,char* argv[])
   FermetureFenetreGraphique();
   messageSucces("MAIN", "Fenetre graphique fermee");
 
-  // Annuler tous les threads principaux
-  annulerThreads();
   // Annuler tous les threadFantome
   annulerThreadsFantomes();
-  // Annuler les autres threads
-  annulerAutreThreads();
+  // Annuler tous les autres threads
+  annulerAutresThreads();
 
   // Suppression de la cle pour les variables specifiques
   pthread_key_delete(cle);
@@ -212,7 +211,7 @@ void* threadPacGom(void *pParam)
   int niveauJeu = 1;
 
   // Tant qu'on n'a pas atteint le niveau 10
-  while (niveauJeu < 10)
+  while (niveauJeu != NIVEAUMAX)
   {
     // Afficher le niveau actuel
     DessineChiffre(14, 22, niveauJeu);
@@ -235,13 +234,24 @@ void* threadPacGom(void *pParam)
 
     pthread_testcancel();
 
-    printf("Changmement de niveau\n");
-    pthread_mutex_lock(&mutexTab);
-    augmenterNiveau(&niveauJeu);
-    pthread_mutex_unlock(&mutexTab);
+    niveauJeu++;
+    if (niveauJeu != NIVEAUMAX)
+    {
+      printf("Changmement de niveau\n");
+      pthread_mutex_lock(&mutexTab);
+      augmenterNiveau();
+      pthread_mutex_unlock(&mutexTab);
+    }
   }
 
-  // Note : Afficher le fait que le joueur a gagne
+  // Le joueur a gagne
+  continuerJeu = false;
+
+  Attente(1000);
+
+  annulerThreadsFantomes();
+  
+  DessineVictory(9, 4);
   
   tidPacGom = 0;
   messageInfo("PACGOM", "Le thread se termine");
@@ -311,11 +321,8 @@ void afficherNbPacGoms()
   DessineChiffre(12, 24, nbPacGom % 10);
 }
 
-void augmenterNiveau(int *niveau)
+void augmenterNiveau()
 {
-  // Augmenter le niveau du jeu de 1
-  (*niveau)++;
-
   // Augmenter la vitess du Pac-Man par 2
   pthread_mutex_lock(&mutexDelai);
   delai /= 2;
@@ -339,7 +346,7 @@ void augmenterNiveau(int *niveau)
 
   // Si on est dans le mode Fantomes comestible, on revient dans le mode normal
   printf("tidTimeout = %lu\n", tidTimeOut);
-  if (tidTimeOut != 0)
+  if (tidTimeOut)
   {
     pthread_kill(tidTimeOut, SIGQUIT);
     tidTimeOut = 0;
@@ -551,13 +558,15 @@ void detecterProchaineCasePacMan(int l, int c)
       {
         pthread_mutex_unlock(&mutexMode);
 
+        pthread_t tidFantome = tab[l][c].tid;
         // Tuer le Fantome
-        pthread_kill(tab[l][c].tid, SIGCHLD);
+        pthread_kill(tidFantome, SIGCHLD);
 
         for (int i = 0; i < 8; i++)
         {
-          if (tidFantomes[i] == tab[l][c].tid)
+          if (tidFantomes[i] == tidFantome)
           {
+            pthread_join(tidFantomes[i], NULL);
             tidFantomes[i] = 0;
           }
         }
@@ -676,6 +685,12 @@ void* threadBonus(void *pParam)
     bonusPlace = false;
 
     pthread_mutex_lock(&mutexTab);
+    if (!continuerJeu)
+    {
+      pthread_mutex_unlock(&mutexTab);
+      break;
+    }
+
     // Rechercher une case vide a partir de l'emplacement de depart
     for (l = lDepart; l < NB_LIGNE && !bonusPlace; l++)
     {
@@ -717,6 +732,12 @@ void* threadBonus(void *pParam)
     c--;
 
     pthread_mutex_lock(&mutexTab);
+    if (!continuerJeu)
+    {
+      pthread_mutex_unlock(&mutexTab);
+      break;
+    }
+    
     // Si le Bonus est encore la
     if (tab[l][c].presence == BONUS)
     {
@@ -1248,6 +1269,12 @@ void* threadVies(void *pParam)
     // Attend la mort du Pac-Man
     pthread_join(tidPacMan, NULL); // Note : Attention ! Est-ce que Pac-Man peut mourir 2 fois en même temps ?
     tidPacMan = 0; // Empêche qu'un mauvais tid soit utilises
+    if (!continuerJeu)
+    {
+      tidVies = 0;
+      messageInfo("VIES", "threadVies termine");
+      pthread_exit(NULL);
+    }
     
     pthread_mutex_lock(&mutexTab);
     // Efface la derniere case avec le Pac-Man
@@ -1265,13 +1292,9 @@ void* threadVies(void *pParam)
 
   continuerJeu = false;
 
-  // Mettre les tid des Fantomes à 0, car il ne peuvent pas le faire eux-meme
-  for (int i = 0; i < 8; i++)
-  {
-    tidFantomes[i] = 0;
-  }
-
   Attente(1000);
+  
+  annulerThreadsFantomes();
   
   DessineGameOver(9, 4);
 
@@ -1336,12 +1359,7 @@ void* threadEvent(void *pParam)
 
 // *********************** Fonctions d'annulation des threads ***********************
 
-void annulerThreads()
-{
-  
-}
-
-void annulerAutreThreads()
+void annulerAutresThreads()
 {
   if (tidTimeOut)
   {
@@ -1426,25 +1444,25 @@ void annulerThreadsFantomes()
 {
   for (int i = 0; i < 8; i++)
   {
-    // Si le Fantome n'existe pas
-    if (tidFantomes[i] == 0)
+    // Si le Fantome existe
+    if (tidFantomes[i])
     {
-      messageInfo("EVENT", "Thread Fantome inexistant. Il ne sera donc pas annule.");
-      continue;
-    }
-
-    // Sinon, tuer le Fantome
-    if (pthread_cancel(tidFantomes[i]) == 0)
-    {
+      if (pthread_cancel(tidFantomes[i]) == 0)
+      {
+        messageSucces("EVENT", "Un thread Fantome a ete annule");
+      }
+      else
+      {
+        messageInfo("EVENT", "Un thread Fantome etait deja annule");
+      }
       pthread_join(tidFantomes[i], NULL);
-      messageSucces("EVENT", "Un thread Fantome a ete annule");
+
+      tidFantomes[i] = 0;
     }
     else
     {
-      messageErreur("EVENT", "Un thread Fantome n'a pas pu etre annule");
+      messageInfo("EVENT", "Thread Fantome inexistant. Il ne sera donc pas annule.");
     }
-
-    tidFantomes[i] = 0;
   }
 }
 
