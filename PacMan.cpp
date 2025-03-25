@@ -25,7 +25,7 @@
 #define LENTREE 15
 #define CENTREE 8
 
-#define NIVEAUMAX 2
+#define NIVEAUMAX 3
 
 typedef struct
 {
@@ -57,6 +57,7 @@ int mode = 1;
 
 void* threadPacGom(void *pParam);
 void initialiserPacGoms();
+void initialiserSuperPacGoms();
 void afficherNbPacGoms();
 void augmenterNiveau();
 void* threadPacMan(void *pParam);
@@ -219,6 +220,7 @@ void* threadPacGom(void *pParam)
     // Initialiser les Pac-Goms
     pthread_mutex_lock(&mutexNbPacGom);
     initialiserPacGoms();
+    if (niveauJeu == 1) initialiserSuperPacGoms(); // On ne genere les SuperPacGoms que pour le niveau 1
 
     // Affiche le nombre total de Pac-Goms
     afficherNbPacGoms();
@@ -232,7 +234,7 @@ void* threadPacGom(void *pParam)
     }
     pthread_mutex_unlock(&mutexNbPacGom);
 
-    pthread_testcancel();
+    // pthread_testcancel();
 
     niveauJeu++;
     if (niveauJeu != NIVEAUMAX)
@@ -261,19 +263,17 @@ void* threadPacGom(void *pParam)
 void initialiserPacGoms()
 {
   int l, c;
-  int tabPosSuperPacGoms[4][2] = {{2, 1}, {2, 15}, {15, 1}, {15, 15}}; // Emplacement des Super Pac-Goms
   int tabPosVide[3][2] = {{15, 8}, {8, 8}, {9, 8}}; // Cases devant etre vides
 
   pthread_mutex_lock(&mutexTab);
-
   nbPacGom = 0;
   
   // Remplir les cases vides avec des Pac-Goms
-  for (l = 0; l < /*NB_LIGNE*/5; l++)
+  for (l = 0; l < /*NB_LIGNE*/10; l++)
   {
-    for (c = 0; c < /*NB_COLONNE*/5; c++)
+    for (c = 0; c < /*NB_COLONNE*/10; c++)
     {
-      if (tab[l][c].presence == 0)
+      if (tab[l][c].presence == VIDE)
       {
         setTab(l, c, PACGOM);
         DessinePacGom(l, c);
@@ -295,22 +295,29 @@ void initialiserPacGoms()
       nbPacGom--;
     }
   }
+  pthread_mutex_unlock(&mutexTab);
+}
 
+void initialiserSuperPacGoms()
+{
+  int l, c;
+  int tabPosSuperPacGoms[4][2] = {{2, 1}, {2, 15}, {15, 1}, {15, 15}}; // Emplacement des Super Pac-Goms
+
+  pthread_mutex_lock(&mutexTab);
   // Ajouter les super Pac-Goms
   for (unsigned long int i = 0; i < (sizeof(tabPosSuperPacGoms) / sizeof(tabPosSuperPacGoms[0])); i++)
   {
     l = tabPosSuperPacGoms[i][0];
     c = tabPosSuperPacGoms[i][1];
 
-    if (tab[l][c].presence != PACGOM) // Si on n'a pas rempli toute les cases vides avec des Pac-Goms
+    if (tab[l][c].presence == PACGOM) // Si on n'a pas rempli toute les cases vides avec des Pac-Goms
     {
-      nbPacGom++;
+      nbPacGom--;
     }
 
     setTab(l, c, SUPERPACGOM);
     DessineSuperPacGom(l,c);
   }
-
   pthread_mutex_unlock(&mutexTab);
 }
 
@@ -377,7 +384,7 @@ void* threadPacMan(void *pParam)
 {
   messageSucces("PACMAN", "Thread cree");
 
-  int nouveauL, nouveauC, nouvelleDir, ancienneDir;
+  int nouveauL, nouveauC, nouvelleDir, ancienneDir = GAUCHE;
   int delaiLocal;
 
   // Demasquage des signaux SIGINT, SIGHUP, SIGUSR1 et SIGUSR2
@@ -408,7 +415,7 @@ void* threadPacMan(void *pParam)
   // Boucled principale
   while (continuerJeu)
   {
-    pthread_testcancel();
+    // pthread_testcancel();
 
     // Recuperer la valeur de la variable delai
     pthread_mutex_lock(&mutexDelai);
@@ -427,8 +434,16 @@ void* threadPacMan(void *pParam)
     // Calculer la nouvelle position selon la nouvelle direction
     calculerCoord(nouvelleDir, &nouveauL, &nouveauC);
 
-    // Si le prochain emplacement n'est pas un mur
-    if (tab[nouveauL][nouveauC].presence != MUR)
+    // Si on est au bout du tunnel de gauche
+    if (L == 9 && C == 0 && nouvelleDir == GAUCHE)
+    {
+      changerPositionPacMan(9, 16, nouvelleDir, maskPacMan);
+    }
+    else if (L == 9 && C == 16 && nouvelleDir == DROITE) // Si on est au bout du tunnel de droite
+    {
+      changerPositionPacMan(9, 0, nouvelleDir, maskPacMan);
+    }
+    else if (tab[nouveauL][nouveauC].presence != MUR) // Si le prochain emplacement n'est pas un mur
     {
       detecterProchaineCasePacMan(nouveauL, nouveauC);
 
@@ -436,7 +451,7 @@ void* threadPacMan(void *pParam)
       changerPositionPacMan(nouveauL, nouveauC, nouvelleDir, maskPacMan);
       ancienneDir = nouvelleDir;
     }
-    else
+    else // Si la nouvelle direction n'est pas possible
     {
       // On tente de se deplacer avec l'ancienne direction
       calculerCoord(ancienneDir, &nouveauL, &nouveauC);
@@ -516,7 +531,7 @@ void detecterProchaineCasePacMan(int l, int c)
       break;
 
     case SUPERPACGOM:
-      diminuerNbPacGom();
+      // diminuerNbPacGom();
       augmenterScore(5);
       // Changer de mode
       pthread_mutex_lock(&mutexMode);
@@ -639,7 +654,7 @@ void* threadScore(void *pParam)
 
   while (continuerJeu)
   {
-    pthread_testcancel();
+    // pthread_testcancel();
 
     pthread_mutex_lock(&mutexScore);
     // Tant qu'il y a des Pac-Goms
@@ -674,7 +689,7 @@ void* threadBonus(void *pParam)
 
   while (continuerJeu)
   {
-    pthread_testcancel();
+    // pthread_testcancel();
 
     Attente((rand() % 11 + 10) * 1000);
 
@@ -737,7 +752,7 @@ void* threadBonus(void *pParam)
       pthread_mutex_unlock(&mutexTab);
       break;
     }
-    
+
     // Si le Bonus est encore la
     if (tab[l][c].presence == BONUS)
     {
@@ -767,7 +782,7 @@ void* threadCompteurFantomes(void *pParam)
   // Boucle principale
   while (continuerJeu)
   {
-    pthread_testcancel();
+    // pthread_testcancel();
 
     pthread_mutex_lock(&mutexDelai);
     delaiLocal = (delai * 5) / 3; // Note : On la recupere pour ne pas bloquer tout le monde pendant l'attente
@@ -783,7 +798,7 @@ void* threadCompteurFantomes(void *pParam)
     }
     pthread_mutex_unlock(&mutexNbFantomes);
 
-    pthread_testcancel();
+    // pthread_testcancel();
 
     pthread_mutex_lock(&mutexMode);
     // Tant qu'on n'est dans le mode Fantomes comestibles
@@ -793,7 +808,13 @@ void* threadCompteurFantomes(void *pParam)
     }
     pthread_mutex_unlock(&mutexMode);
 
-    pthread_testcancel();
+    // pthread_testcancel();
+
+    if (!continuerJeu)
+    {
+      pthread_mutex_unlock(&mutexTab);
+      break;
+    }
 
     // creerFantome(structFantomes);
     int i;
@@ -917,7 +938,7 @@ void* threadFantome(void *pParam)
   // Tant qu'il y a un Fantome sur la case de depart
   while (caseDepartOccupee)
   {
-    pthread_testcancel();
+    // pthread_testcancel();
 
     pthread_mutex_lock(&mutexTab);
     // Si la case n'est plus occupee
@@ -946,7 +967,7 @@ void* threadFantome(void *pParam)
 
   while (continuerJeu)
   {
-    pthread_testcancel();
+    // pthread_testcancel();
 
     caseSuivanteTrouvee = false;
     tentative = 0;
@@ -1225,7 +1246,7 @@ void* threadTimeOut(void *pParam)
 
   alarm(nbSecondes);
 
-  pthread_testcancel();
+  // pthread_testcancel();
 
   pause();
   pthread_mutex_lock(&mutexMode);
