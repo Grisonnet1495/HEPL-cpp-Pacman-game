@@ -25,7 +25,7 @@
 #define LENTREE 15
 #define CENTREE 8
 
-#define NIVEAUMAX 5
+#define NIVEAUMAX 6
 
 typedef struct
 {
@@ -47,7 +47,7 @@ pthread_t tidPacGom, tidPacMan = 0, tidScore, tidEvent, tidBonus, tidCompteurFan
 pthread_mutex_t mutexTab, mutexDelai, mutexNbPacGom, mutexScore, mutexNbFantomes, mutexMode;
 pthread_cond_t condNbPacGom, condScore, condNbFantomes, condMode;
 pthread_key_t cle;
-sigset_t maskPacMan; // Note : Est-ce bien que ce soit en global ?
+sigset_t maskPacMan; // Note : Variable globale pour simplifier
 bool MAJScore = true;
 bool continuerJeu = true;
 int L, C, dir; // Position et direction du PacMan
@@ -110,8 +110,8 @@ void messageErreur(const char* nomThread, const char *message);
 
 int main(int argc,char* argv[])
 {
-  // struct sigaction sigAct; // Note : A utiliser ?
-  // char ok; // Note : A utiliser ?
+  // struct sigaction sigAct; // Note : Pas utilise
+  // char ok; // Note : Pas utilise
  
   srand((unsigned)time(NULL));
 
@@ -153,8 +153,6 @@ int main(int argc,char* argv[])
   sigaddset(&mask, SIGALRM);
   sigaddset(&mask, SIGQUIT);
   sigaddset(&mask, SIGCHLD);
-  // sigfillset(&mask); // Note : correct ?
-  // sigdelset(&mask, SIGINT);
   sigprocmask(SIG_SETMASK, &mask, NULL);
 
   // Creation d'une cle pour des variables specifiques
@@ -177,7 +175,7 @@ int main(int argc,char* argv[])
   pthread_join(tidEvent, NULL);
 
   messageInfo("MAIN", "Attente de 1500 millisecondes...");
-  Attente(1500);
+  // Attente(1500);
   // -------------------------------------------------------------------------
   
   // Fermeture de la fenetre
@@ -185,7 +183,8 @@ int main(int argc,char* argv[])
   FermetureFenetreGraphique();
   messageSucces("MAIN", "Fenetre graphique fermee");
 
-  // Annuler les threads principaux
+  // Annuler tous les threads
+  annulerThreadsFantomes();
   annulerThreadsPrincipaux();
 
   // Suppression de la cle pour les variables specifiques
@@ -218,7 +217,7 @@ void* threadPacGom(void *pParam)
 
   int niveauJeu = 1;
 
-  // Tant qu'on n'a pas atteint le niveau 10
+  // Tant qu'on n'a pas atteint le niveau maximal
   while (niveauJeu != NIVEAUMAX)
   {
     // Afficher le niveau actuel
@@ -242,9 +241,10 @@ void* threadPacGom(void *pParam)
     pthread_mutex_unlock(&mutexNbPacGom);
 
     niveauJeu++;
+
+    // Si on a atteint le niveau maximal
     if (niveauJeu != NIVEAUMAX)
     {
-      printf("Changmement de niveau\n");
       pthread_mutex_lock(&mutexTab);
       augmenterNiveau();
       pthread_mutex_unlock(&mutexTab);
@@ -343,7 +343,7 @@ void augmenterNiveau()
 {
   // Augmenter la vitess du Pac-Man par 2
   pthread_mutex_lock(&mutexDelai);
-  delai /= 2;
+  delai = delai * 2 / 3; // Note : J'ai diminue l'augmentation du delai pour plus de confort
   pthread_mutex_unlock(&mutexDelai);
 
   // Annuler tous les threadFantome pour qu'ils reviennent au depart
@@ -446,7 +446,7 @@ void* threadPacMan(void *pParam)
 
     // Lire la nouvelle direction
     nouvelleDir = dir;
-    
+
     pthread_mutex_lock(&mutexTab);
     // Calculer la nouvelle position selon la nouvelle direction
     calculerCoord(nouvelleDir, &nouveauL, &nouveauC);
@@ -545,12 +545,14 @@ void detecterProchaineCasePacMan(int l, int c)
       break;
 
     case SUPERPACGOM:
-      // diminuerNbPacGom(); // Note : On ne le fait pas par choix
+      // diminuerNbPacGom(); // Note : On ne le fait pas expres (pour augmenter la difficulte)
       augmenterScore(5);
+
       // Changer de mode
       pthread_mutex_lock(&mutexMode);
       mode = 2;
       pthread_mutex_unlock(&mutexMode);
+
       // Creer un threadTimeOut
       *nbSecondes = 0;
 
@@ -562,6 +564,7 @@ void detecterProchaineCasePacMan(int l, int c)
       }
       pthread_create(&tidTimeOut, NULL, threadTimeOut, nbSecondes);
       pthread_detach(tidTimeOut);
+
       break;
 
     case BONUS:
@@ -744,7 +747,7 @@ void* threadBonus(void *pParam)
     pthread_mutex_unlock(&mutexTab);
 
     // Attendre 10 secondes
-    Attente(10000); // Note : Duree a verifier
+    Attente(10000);
 
     // Vu que la boucle a incremente les valeurs de l et c de 1 a la sortie, on les decremente de 1
     l--;
@@ -908,7 +911,7 @@ void* threadFantome(void *pParam)
 
   S_FANTOME *pStructFantome = (S_FANTOME *)pParam;
   int *l = &(pStructFantome->L), *c = &(pStructFantome->C), *couleur = &(pStructFantome->couleur), *cache = &(pStructFantome->cache);
-  int dir = HAUT; // Note : Se substitue la variable dir globale ?
+  int dir = HAUT; // Note : Se substitue la variable dir globale
   int nouveauL, nouveauC, nouvelleDir = dir;
   int delaiLocal;
   int tentative; // Necessaire pour ne pas bloquer les autres threads si un Fantome est bloque
@@ -1034,7 +1037,7 @@ void* threadFantome(void *pParam)
         else
         {
           // Generer une direction aleatoire
-          nouvelleDir = (rand() % 4) + 500000; // Note : Est-ce bien d'utiliser un nombre magique ?
+          nouvelleDir = (rand() % 4) + 500000; // Note : On rajoute 500000 pour transformer le nombre et direction
           if (tentative < 10 && nouvelleDir == ((dir + 2) % 4) + 500000) // Donne un mouvement plus naturel aux Fantômes en leur evitant au maximum de faire demi-tour
           {
             nouvelleDir = (nouvelleDir + 1) % 4 + 500000;
@@ -1067,7 +1070,7 @@ void* threadFantome(void *pParam)
         else
         {
           // Generer une direction aleatoire
-          nouvelleDir = (rand() % 4) + 500000; // Note : Est-ce bien d'utiliser un nombre magique ?
+          nouvelleDir = (rand() % 4) + 500000; // Note : On rajoute 500000 pour transformer le nombre et direction
           if (tentative < 10 && nouvelleDir == ((dir + 2) % 4) + 500000) // Donne un mouvement plus naturel aux Fantômes en leur evitant au maximum de faire demi-tour
           {
             nouvelleDir = (nouvelleDir + 1) % 4 + 500000;
@@ -1226,7 +1229,7 @@ void* threadTimeOut(void *pParam)
   sigemptyset(&mask);
   sigaddset(&mask, SIGALRM);
   sigaddset(&mask, SIGQUIT);
-  pthread_sigmask(SIG_UNBLOCK, &mask, NULL); // Note : On pourrait mettre SIG_SETMASK
+  pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
 
   // Armement du signal SIGQUIT
   struct sigaction sa;
@@ -1303,7 +1306,7 @@ void* threadVies(void *pParam)
     pthread_create(&tidPacMan, NULL, threadPacMan, NULL);
 
     // Attend la mort du Pac-Man
-    pthread_join(tidPacMan, NULL); // Note : Attention ! Est-ce que Pac-Man peut mourir 2 fois en même temps ?
+    pthread_join(tidPacMan, NULL);
     tidPacMan = 0;
 
     // Si le jeu s'arrete
@@ -1399,6 +1402,7 @@ void* threadEvent(void *pParam)
 
 void annulerThreadsPrincipaux()
 {
+  // Annuler les threads principaux s'ils existent
   if (tidTimeOut)
   {
     pthread_kill(tidTimeOut, SIGQUIT);
@@ -1407,75 +1411,68 @@ void annulerThreadsPrincipaux()
   }
   else
   {
-    messageInfo("EVENT", "threadTimeOut inexistant. Il ne sera donc pas annule.");
+    messageInfo("EVENT", "Le threadTimeOut est deja termine");
   }
 
   if (tidPacGom)
   {
-    if (pthread_cancel(tidPacGom) == 0) messageSucces("EVENT", "threadPacGom a ete annule");
-    else messageErreur("EVENT", "threadPacGom n'a pas pu etre annule");
-    // pthread_join(tidPacGom, NULL);
+    if (pthread_cancel(tidPacGom) == 0) messageSucces("EVENT", "Le threadPacGom a ete annule");
+    else messageErreur("EVENT", "Le threadPacGom n'a pas pu etre annule");
   }
   else
   {
-    messageInfo("EVENT", "threadPacGom inexistant. Il ne sera donc pas annule.");
+    messageInfo("EVENT", "Le threadPacGom est deja termine");
   }
 
   if (tidBonus)
   {
     if (pthread_cancel(tidBonus) == 0) messageSucces("EVENT", "Le threadBonus a ete annule");
     else messageErreur("EVENT", "Le threadBonus n'a pas pu etre annule");
-    // pthread_join(tidBonus, NULL);
   }
   else
   {
-    messageInfo("EVENT", "threadBonus inexistant. Il ne sera donc pas annule.");
+    messageInfo("EVENT", "Le threadBonus est deja termine");
   }
 
   if (tidVies)
   {
     if (pthread_cancel(tidVies) == 0) messageSucces("EVENT", "Le threadVies a ete annule");
     else messageErreur("EVENT", "Le threadVies n'a pas pu etre annule");
-    // pthread_join(tidVies, NULL);
   }
   else
   {
-    messageInfo("EVENT", "threadVies inexistant. Il ne sera donc pas annule.");
+    messageInfo("EVENT", "Le threadVies est deja termine");
   }
 
-  // Si le threadPacMan existe
   if (tidPacMan)
   { 
     if (pthread_cancel(tidPacMan) == 0) messageSucces("EVENT", "Le threadPacMan a ete annule");
     else messageErreur("EVENT", "Le threadPacMan n'a pas pu etre annule");
     pthread_join(tidPacMan, NULL);
-    printf("threadPacMan supprime\n");
   }
   else
   {
-    messageInfo("EVENT", "threadPacMan inexistant. Il ne sera donc pas annule.");
+    messageInfo("EVENT", "Le threadPacMan est deja termine");
   }
 
   if (tidCompteurFantomes)
   {
     if (pthread_cancel(tidCompteurFantomes) == 0) messageSucces("EVENT", "Le threadCompteurFantomes a ete annule");
     else messageErreur("EVENT", "Le threadCompteurFantomes n'a pas pu etre annule");
-    // pthread_join(tidCompteurFantomes, NULL);
   }
   else
   {
-    messageInfo("EVENT", "threadCompteurFantomes inexistant. Il ne sera donc pas annule.");
+    messageInfo("EVENT", "Le threadCompteurFantomes est deja termine");
   }
 
   if (tidScore)
   {
-    if (pthread_cancel(tidScore) == 0) messageSucces("EVENT", "threadScore a ete annule");
-    else messageErreur("EVENT", "Tous les threads n'ont pas pu etre annule");
-    // pthread_join(tidScore, NULL);
+    if (pthread_cancel(tidScore) == 0) messageSucces("EVENT", "Le threadScore a ete annule");
+    else messageErreur("EVENT", "Le threadScore n'a pas pu etre annule");
   }
   else
   {
-    messageInfo("EVENT", "threadScore inexistant. Il ne sera donc pas annule.");
+    messageInfo("EVENT", "Le threadScore est deja termine");
   }
 }
 
@@ -1494,7 +1491,6 @@ void annulerThreadsFantomes()
       {
         messageInfo("EVENT", "Un thread Fantome etait deja annule");
       }
-      // pthread_join(tidFantomes[i], NULL);
 
       tidFantomes[i] = 0;
     }
