@@ -158,11 +158,16 @@ int main(int argc,char* argv[])
 
   // Creation de threadPacGom, threadScore, threadPacman, threadEvent, threadBonus, threadCompteurFantomes et threadVies
   pthread_create(&tidPacGom, NULL, threadPacGom, NULL);
+  pthread_detach(tidPacGom);
   pthread_create(&tidScore, NULL, threadScore, NULL);
+  pthread_detach(tidScore);
   pthread_create(&tidEvent, NULL, threadEvent, NULL);
   pthread_create(&tidBonus, NULL, threadBonus, NULL);
+  pthread_detach(tidBonus);
   pthread_create(&tidCompteurFantomes, NULL, threadCompteurFantomes, NULL);
+  pthread_detach(tidCompteurFantomes);
   pthread_create(&tidVies, NULL, threadVies, NULL);
+  pthread_detach(tidVies);
   
   // Attente de threadEvent
   pthread_join(tidEvent, NULL);
@@ -177,7 +182,7 @@ int main(int argc,char* argv[])
   messageSucces("MAIN", "Fenetre graphique fermee");
 
   // Annuler tous les threadFantome
-  annulerThreadsFantomes();
+  // annulerThreadsFantomes();
   // Annuler tous les autres threads
   annulerAutresThreads();
 
@@ -251,7 +256,7 @@ void* threadPacGom(void *pParam)
 
   Attente(1000);
 
-  annulerThreadsFantomes();
+  // annulerThreadsFantomes();
   
   DessineVictory(9, 4);
   
@@ -269,9 +274,9 @@ void initialiserPacGoms()
   nbPacGom = 0;
   
   // Remplir les cases vides avec des Pac-Goms
-  for (l = 0; l < /*NB_LIGNE*/10; l++)
+  for (l = 0; l < /*NB_LIGNE*/4; l++)
   {
-    for (c = 0; c < /*NB_COLONNE*/10; c++)
+    for (c = 0; c < /*NB_COLONNE*/4; c++)
     {
       if (tab[l][c].presence == VIDE)
       {
@@ -383,6 +388,7 @@ void augmenterNiveau()
 void* threadPacMan(void *pParam)
 {
   messageSucces("PACMAN", "Thread cree");
+  // pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL); // Empeche que le thread ne puisse pas etre annule s'il est bloque sur un mutex.
 
   int nouveauL, nouveauC, nouvelleDir, ancienneDir = GAUCHE;
   int delaiLocal;
@@ -418,19 +424,29 @@ void* threadPacMan(void *pParam)
     // pthread_testcancel();
 
     // Recuperer la valeur de la variable delai
+    printf("1\n");
     pthread_mutex_lock(&mutexDelai);
+    printf("2\n");
     delaiLocal = delai; // Note : On la recupere pour ne pas bloquer tout le monde pendant qu'on attend
     pthread_mutex_unlock(&mutexDelai);
+    printf("3\n");
 
     // Attendre 300 millisecondes et puis la reception d'un signal
     sigprocmask(SIG_BLOCK, &maskPacMan, NULL);
     Attente(delaiLocal);
     sigprocmask(SIG_UNBLOCK, &maskPacMan, NULL);
+    printf("4\n");
 
+    if (!continuerJeu)
+    {
+      break;
+    }
+    
     // Lire la nouvelle direction
     nouvelleDir = dir;
 
     pthread_mutex_lock(&mutexTab);
+    printf("5\n");
     // Calculer la nouvelle position selon la nouvelle direction
     calculerCoord(nouvelleDir, &nouveauL, &nouveauC);
 
@@ -466,9 +482,10 @@ void* threadPacMan(void *pParam)
       }
     }
     pthread_mutex_unlock(&mutexTab);
+    printf("6\n");
   }
 
-  tidPacMan = 0;
+  // tidPacMan = 0;
   messageInfo("PACMAN", "Thread termine");
   pthread_exit(NULL);
 }
@@ -489,6 +506,7 @@ void placerPacManEtAttente()
     Attente(500);
     EffaceCarre(L, C);
     Attente(500);
+    printf("Attente\n");
   }
   
   DessinePacMan(L, C, GAUCHE);
@@ -577,14 +595,14 @@ void detecterProchaineCasePacMan(int l, int c)
         // Tuer le Fantome
         pthread_kill(tidFantome, SIGCHLD);
 
-        for (int i = 0; i < 8; i++)
-        {
-          if (tidFantomes[i] == tidFantome)
-          {
-            pthread_join(tidFantomes[i], NULL);
-            tidFantomes[i] = 0;
-          }
-        }
+        // for (int i = 0; i < 8; i++)
+        // {
+        //   if (tidFantomes[i] == tidFantome)
+        //   {
+        //     pthread_join(tidFantomes[i], NULL);
+        //     tidFantomes[i] = 0;
+        //   }
+        // }
       }
       
       break;
@@ -812,7 +830,6 @@ void* threadCompteurFantomes(void *pParam)
 
     if (!continuerJeu)
     {
-      pthread_mutex_unlock(&mutexTab);
       break;
     }
 
@@ -862,7 +879,12 @@ void* threadCompteurFantomes(void *pParam)
     // Creer un threadFantome
     if (creerFantomePossible)
     {
-      if (pthread_create(&tidFantomes[i], NULL, threadFantome, (void*)structFantomes[i]) != 0)
+      printf("Creation d'un threadFantome...\n");
+      if (pthread_create(&tidFantomes[i], NULL, threadFantome, (void*)structFantomes[i]) == 0)
+      {
+        pthread_detach(tidFantomes[i]);
+      }
+      else
       {
         messageErreur("COMPTEURFANTOMES", "Erreur de pthread_create");
       }
@@ -904,7 +926,7 @@ bool allouerStructFantome(S_FANTOME *structFantomes[8], int i, int couleur)
 void* threadFantome(void *pParam)
 {
   messageSucces("FANTOME", "Thread cree");
-  pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL); // Empeche que le thread ne puisse pas etre annule s'il est bloque sur un mutex.
+  // pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL); // Empeche que le thread ne puisse pas etre annule s'il est bloque sur un mutex.
   
   S_FANTOME *pStructFantome = (S_FANTOME *)pParam;
   int *l = &(pStructFantome->L), *c = &(pStructFantome->C), *couleur = &(pStructFantome->couleur), *cache = &(pStructFantome->cache);
@@ -1150,10 +1172,13 @@ void handlerSIGCHLD(int signal)
 
 void cleanupFantome(void *pParam)
 {
+  printf("1 bis\n");
   S_FANTOME *pStructFantome = (S_FANTOME *)pthread_getspecific(cle); 
 
+  printf("2 bis\n");
   // Augmenter le score
   augmenterScore(50);
+  printf("3 bis\n");
 
   // Augmenter le score s'il y a quelque chose cache
   switch (pStructFantome->cache)
@@ -1172,8 +1197,10 @@ void cleanupFantome(void *pParam)
       augmenterScore(30);
       break;
   }
+  printf("4 bis\n");
 
   pthread_mutex_lock(&mutexNbFantomes);
+  printf("5 bis\n");
   // Diminuer le nombre de Fantome correspondant
   switch (pStructFantome->couleur)
   {
@@ -1195,9 +1222,18 @@ void cleanupFantome(void *pParam)
   }
   pthread_mutex_unlock(&mutexNbFantomes);
   pthread_cond_signal(&condNbFantomes);
+  printf("6 bis\n");
 
   free(pStructFantome);
   messageSucces("FANTOME", "Memoire allouee pour structFantome liberee");
+
+  for (int i = 0; i < 8; i++)
+  {
+    if (tidFantomes[i] == pthread_self())
+    {
+      tidFantomes[i] = 0;
+    }
+  }
 
   return;
 }
@@ -1315,7 +1351,7 @@ void* threadVies(void *pParam)
 
   Attente(1000);
   
-  annulerThreadsFantomes();
+  // annulerThreadsFantomes();
   
   DessineGameOver(9, 4);
 
@@ -1345,6 +1381,7 @@ void* threadEvent(void *pParam)
       switch(event.touche)
       {
         case 'q' :
+          continuerJeu = false;
           quitter = 1;
           break;
 
@@ -1395,9 +1432,9 @@ void annulerAutresThreads()
 
   if (tidPacGom)
   {
-    if (pthread_cancel(tidPacGom) == 0) messageSucces("EVENT", "threadPacGom, threadBonus, threadCompteurFantomes et threadVies ont ete annule");
+    if (pthread_cancel(tidPacGom) == 0) messageSucces("EVENT", "threadPacGom a ete annule");
     else messageErreur("EVENT", "threadPacGom n'a pas pu etre annule");
-    pthread_join(tidPacGom, NULL);
+    // pthread_join(tidPacGom, NULL);
   }
   else
   {
@@ -1408,7 +1445,7 @@ void annulerAutresThreads()
   {
     if (pthread_cancel(tidBonus) == 0) messageSucces("EVENT", "Le threadBonus a ete annule");
     else messageErreur("EVENT", "Le threadBonus n'a pas pu etre annule");
-    pthread_join(tidBonus, NULL);
+    // pthread_join(tidBonus, NULL);
   }
   else
   {
@@ -1419,7 +1456,7 @@ void annulerAutresThreads()
   {
     if (pthread_cancel(tidVies) == 0) messageSucces("EVENT", "Le threadVies a ete annule");
     else messageErreur("EVENT", "Le threadVies n'a pas pu etre annule");
-    pthread_join(tidVies, NULL);
+    // pthread_join(tidVies, NULL);
   }
   else
   {
@@ -1432,6 +1469,7 @@ void annulerAutresThreads()
     if (pthread_cancel(tidPacMan) == 0) messageSucces("EVENT", "Le threadPacMan a ete annule");
     else messageErreur("EVENT", "Le threadPacMan n'a pas pu etre annule");
     pthread_join(tidPacMan, NULL);
+    printf("threadPacMan supprime\n");
   }
   else
   {
@@ -1442,7 +1480,7 @@ void annulerAutresThreads()
   {
     if (pthread_cancel(tidCompteurFantomes) == 0) messageSucces("EVENT", "Le threadCompteurFantomes a ete annule");
     else messageErreur("EVENT", "Le threadCompteurFantomes n'a pas pu etre annule");
-    pthread_join(tidCompteurFantomes, NULL);
+    // pthread_join(tidCompteurFantomes, NULL);
   }
   else
   {
@@ -1453,7 +1491,7 @@ void annulerAutresThreads()
   {
     if (pthread_cancel(tidScore) == 0) messageSucces("EVENT", "threadScore a ete annule");
     else messageErreur("EVENT", "Tous les threads n'ont pas pu etre annule");
-    pthread_join(tidScore, NULL);
+    // pthread_join(tidScore, NULL);
   }
   else
   {
@@ -1476,7 +1514,7 @@ void annulerThreadsFantomes()
       {
         messageInfo("EVENT", "Un thread Fantome etait deja annule");
       }
-      pthread_join(tidFantomes[i], NULL);
+      // pthread_join(tidFantomes[i], NULL);
 
       tidFantomes[i] = 0;
     }
