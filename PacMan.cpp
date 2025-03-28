@@ -61,7 +61,6 @@ void initialiserPacGoms();
 void initialiserSuperPacGoms();
 void diminuerNbPacGom();
 void afficherNbPacGoms();
-void augmenterNiveau();
 // Gestion du Pac-Man
 void* threadPacMan(void *pParam);
 void placerPacManEtAttente();
@@ -324,9 +323,9 @@ void initialiserPacGoms()
   nbPacGom = 0;
   
   // Remplir les cases vides avec des Pac-Goms
-  for (l = 0; l < /*NB_LIGNE*/5; l++)
+  for (l = 0; l <NB_LIGNE; l++)
   {
-    for (c = 0; c < /*NB_COLONNE*/5; c++)
+    for (c = 0; c < NB_COLONNE; c++)
     {
       if (tab[l][c].presence == VIDE)
       {
@@ -386,11 +385,6 @@ void afficherNbPacGoms()
   DessineChiffre(12, 22, nbPacGom / 100);
   DessineChiffre(12, 23, (nbPacGom % 100) / 10);
   DessineChiffre(12, 24, nbPacGom % 10);
-}
-
-void augmenterNiveau()
-{
-  
 }
 
 // *********************** Gestion du Pac-Man ***********************
@@ -837,44 +831,50 @@ void* threadCompteurFantomes(void *pParam)
     }
 
     pthread_mutex_lock(&mutexNbFantomes);
-    // Trouver le Fantome a creer
-    if (nbRouge < 2)
+    if (!tidFantomes[0])
     {
-      if (!tidFantomes[0]) i = 0;
-      else i = 1;
-
+      i = 0;
       creerFantomePossible = allouerStructFantome(structFantomes, i, ROUGE);
-      if (creerFantomePossible) nbRouge++;
     }
-    else if (nbVert < 2)
+    else if (!tidFantomes[1])
     {
-      if (!tidFantomes[2]) i = 2;
-      else i = 3;
-
+      i = 1;
+      creerFantomePossible = allouerStructFantome(structFantomes, i, ROUGE);
+    }
+    else if (!tidFantomes[2])
+    {
+      i = 2;
       creerFantomePossible = allouerStructFantome(structFantomes, i, VERT);
-      if (creerFantomePossible) nbVert++;
     }
-    else if (nbMauve < 2)
+    else if (!tidFantomes[3])
     {
-      if (!tidFantomes[4]) i = 4;
-      else i = 5;
-
+      i = 3;
+      creerFantomePossible = allouerStructFantome(structFantomes, i, VERT);
+    }
+    else if (!tidFantomes[4])
+    {
+      i = 4;
       creerFantomePossible = allouerStructFantome(structFantomes, i, MAUVE);
-      if (creerFantomePossible) nbMauve++;
     }
-    else if (nbOrange < 2)
+    else if (!tidFantomes[5])
     {
-      if (!tidFantomes[6]) i = 6;
-      else i = 7;
-
+      i = 5;
+      creerFantomePossible = allouerStructFantome(structFantomes, i, MAUVE);
+    }
+    else if (!tidFantomes[6])
+    {
+      i = 6;
       creerFantomePossible = allouerStructFantome(structFantomes, i, ORANGE);
-      if (creerFantomePossible) nbOrange++;
+    }
+    else if (!tidFantomes[7])
+    {
+      i = 7;
+      creerFantomePossible = allouerStructFantome(structFantomes, i, ORANGE);
     }
     else
     {
       creerFantomePossible = false;
     }
-    pthread_mutex_unlock(&mutexNbFantomes);
 
     // Creer un threadFantome
     if (creerFantomePossible)
@@ -883,11 +883,19 @@ void* threadCompteurFantomes(void *pParam)
       {
         messageErreur("COMPTEURFANTOMES", "Erreur de pthread_create");
       }
+      else
+      {
+        if (i == 0 || i == 1) nbRouge++;
+        else if (i == 2 || i == 3) nbVert++;
+        else if (i == 4 || i == 5) nbMauve++;
+        else if (i == 6 || i == 7) nbOrange++;
+      }
     }
     else
     {
       messageInfo("COMPTEURFANTOMES", "Impossible de creer le threadFantome");
     }
+    pthread_mutex_unlock(&mutexNbFantomes);
   }
 
   tidCompteurFantomes = 0;
@@ -897,10 +905,10 @@ void* threadCompteurFantomes(void *pParam)
 
 bool allouerStructFantome(S_FANTOME *structFantomes[8], int i, int couleur)
 {
-  if (tidFantomes[i])
-  {
-    return false;
-  }
+  // if (tidFantomes[i])
+  // {
+  //   return false;
+  // }
 
   structFantomes[i] = (S_FANTOME*)malloc(sizeof(S_FANTOME));
 
