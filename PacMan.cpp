@@ -289,7 +289,7 @@ void* threadPacGom(void *pParam)
       // Initialiser a nouveau les Pac-Goms
       pthread_mutex_lock(&mutexNbPacGom);
       initialiserPacGoms();
-      // initialiserSuperPacGoms(); // Note : On ne regenere pas les SuperPacGoms
+      initialiserSuperPacGoms(); // Note : On ne regenere pas les SuperPacGoms
 
       // Afficher le niveau actuel
       DessineChiffre(14, 22, niveauJeu);
@@ -362,9 +362,9 @@ void initialiserSuperPacGoms()
     l = tabPosSuperPacGoms[i][0];
     c = tabPosSuperPacGoms[i][1];
 
-    if (tab[l][c].presence == PACGOM) // Si on n'a pas rempli toute les cases vides avec des Pac-Goms
+    if (tab[l][c].presence != PACGOM) // Si on n'a pas rempli toute les cases vides avec des Pac-Goms
     {
-      nbPacGom--;
+      nbPacGom++;
     }
 
     setTab(l, c, SUPERPACGOM);
@@ -552,7 +552,7 @@ void detecterProchaineCasePacMan(int l, int c)
       break;
 
     case SUPERPACGOM:
-      // diminuerNbPacGom(); // Note : On ne le fait pas expres (pour augmenter la difficulte)
+      diminuerNbPacGom(); // Note : On ne le fait pas expres (pour augmenter la difficulte)
       augmenterScore(5);
 
       // Changer de mode
@@ -835,42 +835,42 @@ void* threadCompteurFantomes(void *pParam)
     }
 
     pthread_mutex_lock(&mutexNbFantomes);
-    if (!tidFantomes[0])
+    if (nbRouge < 2 && !tidFantomes[0])
     {
       i = 0;
       creerFantomePossible = allouerStructFantome(structFantomes, i, ROUGE);
     }
-    else if (!tidFantomes[1])
+    else if (nbRouge < 2 && !tidFantomes[1])
     {
       i = 1;
       creerFantomePossible = allouerStructFantome(structFantomes, i, ROUGE);
     }
-    else if (!tidFantomes[2])
+    else if (nbVert < 2 && !tidFantomes[2])
     {
       i = 2;
       creerFantomePossible = allouerStructFantome(structFantomes, i, VERT);
     }
-    else if (!tidFantomes[3])
+    else if (nbVert < 2 && !tidFantomes[3])
     {
       i = 3;
       creerFantomePossible = allouerStructFantome(structFantomes, i, VERT);
     }
-    else if (!tidFantomes[4])
+    else if (nbMauve < 2 && !tidFantomes[4])
     {
       i = 4;
       creerFantomePossible = allouerStructFantome(structFantomes, i, MAUVE);
     }
-    else if (!tidFantomes[5])
+    else if (nbMauve < 2 && !tidFantomes[5])
     {
       i = 5;
       creerFantomePossible = allouerStructFantome(structFantomes, i, MAUVE);
     }
-    else if (!tidFantomes[6])
+    else if (nbOrange < 2 && !tidFantomes[6])
     {
       i = 6;
       creerFantomePossible = allouerStructFantome(structFantomes, i, ORANGE);
     }
-    else if (!tidFantomes[7])
+    else if (nbOrange < 2 && !tidFantomes[7])
     {
       i = 7;
       creerFantomePossible = allouerStructFantome(structFantomes, i, ORANGE);
@@ -893,6 +893,11 @@ void* threadCompteurFantomes(void *pParam)
         else if (i == 2 || i == 3) nbVert++;
         else if (i == 4 || i == 5) nbMauve++;
         else if (i == 6 || i == 7) nbOrange++;
+        printf("Creation de tidFantome[%d]\n", i);
+        printf("nbRouge = %d\n", nbRouge);
+        printf("nbVert = %d\n", nbVert);
+        printf("nbMauve = %d\n", nbMauve);
+        printf("nbOrange = %d\n", nbOrange);
       }
     }
     else
@@ -1185,7 +1190,7 @@ void handlerSIGCHLD(int signal)
 
 void cleanupFantome(void *pParam)
 {
-  S_FANTOME *pStructFantome = (S_FANTOME *)pthread_getspecific(cle); 
+  S_FANTOME *pStructFantome = (S_FANTOME *)pthread_getspecific(cle);
 
   // Augmenter le score s'il y a quelque chose cache
   pthread_mutex_lock(&mutexMode);
@@ -1219,20 +1224,28 @@ void cleanupFantome(void *pParam)
   {
     case ROUGE:
       nbRouge--;
+      printf("Suppression d'un Fantome ROUGE\n");
       break;
 
     case VERT:
       nbVert--;
+      printf("Suppression d'un Fantome VERT\n");
       break;
 
     case MAUVE:
       nbMauve--;
+      printf("Suppression d'un Fantome MAUVE\n");
       break;
 
     case ORANGE:
       nbOrange--;
+      printf("Suppression d'un Fantome ORANGE\n");
       break;
   }
+  printf("nbRouge = %d\n", nbRouge);
+  printf("nbVert = %d\n", nbVert);
+  printf("nbMauve = %d\n", nbMauve);
+  printf("nbOrange = %d\n", nbOrange);
   pthread_mutex_unlock(&mutexNbFantomes);
   pthread_cond_signal(&condNbFantomes);
 
