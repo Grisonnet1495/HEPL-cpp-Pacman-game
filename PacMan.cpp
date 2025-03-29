@@ -323,7 +323,7 @@ void initialiserPacGoms()
   nbPacGom = 0;
   
   // Remplir les cases vides avec des Pac-Goms
-  for (l = 0; l <NB_LIGNE; l++)
+  for (l = 0; l < NB_LIGNE; l++)
   {
     for (c = 0; c < NB_COLONNE; c++)
     {
@@ -337,7 +337,7 @@ void initialiserPacGoms()
   }
 
   // Vider les cases devant etre vide
-  for (unsigned long int i = 0; i < (sizeof(tabPosVide) / sizeof(tabPosVide[0])); i++)
+  for (int i = 0; i < (int)(sizeof(tabPosVide) / sizeof(tabPosVide[0])); i++)
   {
     l = tabPosVide[i][0];
     c = tabPosVide[i][1];
@@ -357,7 +357,7 @@ void initialiserSuperPacGoms()
   int tabPosSuperPacGoms[4][2] = {{2, 1}, {2, 15}, {15, 1}, {15, 15}}; // Emplacement des Super Pac-Goms
 
   // Ajouter les super Pac-Goms
-  for (unsigned long int i = 0; i < (sizeof(tabPosSuperPacGoms) / sizeof(tabPosSuperPacGoms[0])); i++)
+  for (int i = 0; i < (int)(sizeof(tabPosSuperPacGoms) / sizeof(tabPosSuperPacGoms[0])); i++)
   {
     l = tabPosSuperPacGoms[i][0];
     c = tabPosSuperPacGoms[i][1];
@@ -456,10 +456,14 @@ void* threadPacMan(void *pParam)
     // Si on est au bout du tunnel de gauche
     if (L == 9 && C == 0 && nouvelleDir == GAUCHE)
     {
+      detecterProchaineCasePacMan(9, 16);
+
       changerPositionPacMan(9, 16, nouvelleDir);
     }
     else if (L == 9 && C == 16 && nouvelleDir == DROITE) // Si on est au bout du tunnel de droite
     {
+      detecterProchaineCasePacMan(9, 0);
+
       changerPositionPacMan(9, 0, nouvelleDir);
     }
     else if (tab[nouveauL][nouveauC].presence != MUR) // Si le prochain emplacement n'est pas un mur
@@ -1235,15 +1239,6 @@ void cleanupFantome(void *pParam)
   // Liberer la memoire pour la structFantome du Fantome
   free(pStructFantome);
   messageSucces("FANTOME", "Memoire allouee pour structFantome liberee");
-
-  // Mettre le tid du Fantome a 0
-  // for (int i = 0; i < 8; i++)
-  // {
-  //   if (tidFantomes[i] == pthread_self())
-  //   {
-  //     tidFantomes[i] = 0;
-  //   }
-  // }
 
   return;
 }
