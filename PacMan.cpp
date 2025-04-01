@@ -158,6 +158,8 @@ int main(int argc,char* argv[])
   pthread_key_create(&cle, NULL);
 
   // Creation de threadPacGom, threadScore, threadPacman, threadEvent, threadBonus, threadCompteurFantomes et threadVies
+  pthread_create(&tidVies, NULL, threadVies, NULL);
+  pthread_detach(tidVies);
   pthread_create(&tidPacGom, NULL, threadPacGom, NULL);
   pthread_detach(tidPacGom);
   pthread_create(&tidScore, NULL, threadScore, NULL);
@@ -166,8 +168,6 @@ int main(int argc,char* argv[])
   pthread_detach(tidBonus);
   pthread_create(&tidCompteurFantomes, NULL, threadCompteurFantomes, NULL);
   pthread_detach(tidCompteurFantomes);
-  pthread_create(&tidVies, NULL, threadVies, NULL);
-  pthread_detach(tidVies);
   pthread_create(&tidEvent, NULL, threadEvent, NULL);
   
   // Attente de threadEvent
@@ -247,7 +247,7 @@ void* threadPacGom(void *pParam)
     if (niveauJeu <= NIVEAUMAX)
     {
       pthread_mutex_lock(&mutexTab);
-      // Augmenter la vitess du Pac-Man par 2
+      // Augmenter la vitess du Pac-Man par 0,66
       pthread_mutex_lock(&mutexDelai);
       delai = delai * 2 / 3; // Note : J'ai diminue l'augmentation du delai pour plus de confort
       pthread_mutex_unlock(&mutexDelai);
@@ -909,11 +909,6 @@ void* threadCompteurFantomes(void *pParam)
 
 bool allouerStructFantome(S_FANTOME *structFantomes[8], int i, int couleur)
 {
-  // if (tidFantomes[i])
-  // {
-  //   return false;
-  // }
-
   structFantomes[i] = (S_FANTOME*)malloc(sizeof(S_FANTOME));
 
   // Si la memoire n'a pas ete alloue
@@ -1192,9 +1187,10 @@ void cleanupFantome(void *pParam)
   pthread_mutex_lock(&mutexMode);
   if (mode == 2)
   {
-    // Augmenter le score
+    // Augmenter le score pour le Fantome
     augmenterScore(50);
 
+    // Augmenter le score pour ce qui est cache
     switch (pStructFantome->cache)
     {
       case PACGOM:
