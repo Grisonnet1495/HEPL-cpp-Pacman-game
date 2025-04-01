@@ -289,7 +289,7 @@ void* threadPacGom(void *pParam)
       // Initialiser a nouveau les Pac-Goms
       pthread_mutex_lock(&mutexNbPacGom);
       initialiserPacGoms();
-      initialiserSuperPacGoms(); // Note : On ne regenere pas les SuperPacGoms
+      initialiserSuperPacGoms();
 
       // Afficher le niveau actuel
       DessineChiffre(14, 22, niveauJeu);
@@ -893,11 +893,6 @@ void* threadCompteurFantomes(void *pParam)
         else if (i == 2 || i == 3) nbVert++;
         else if (i == 4 || i == 5) nbMauve++;
         else if (i == 6 || i == 7) nbOrange++;
-        printf("Creation de tidFantome[%d]\n", i);
-        printf("nbRouge = %d\n", nbRouge);
-        printf("nbVert = %d\n", nbVert);
-        printf("nbMauve = %d\n", nbMauve);
-        printf("nbOrange = %d\n", nbOrange);
       }
     }
     else
@@ -1168,6 +1163,7 @@ void detecterProchaineCaseFantome(int nouveauL, int nouveauC, int *cache)
         messageInfo("FANTOME", "Le Fantome a tue le Pac-Man");
       }
       
+      *cache = VIDE;
       break;
 
     case PACGOM:
@@ -1224,28 +1220,20 @@ void cleanupFantome(void *pParam)
   {
     case ROUGE:
       nbRouge--;
-      printf("Suppression d'un Fantome ROUGE\n");
       break;
 
     case VERT:
       nbVert--;
-      printf("Suppression d'un Fantome VERT\n");
       break;
 
     case MAUVE:
       nbMauve--;
-      printf("Suppression d'un Fantome MAUVE\n");
       break;
 
     case ORANGE:
       nbOrange--;
-      printf("Suppression d'un Fantome ORANGE\n");
       break;
   }
-  printf("nbRouge = %d\n", nbRouge);
-  printf("nbVert = %d\n", nbVert);
-  printf("nbMauve = %d\n", nbMauve);
-  printf("nbOrange = %d\n", nbOrange);
   pthread_mutex_unlock(&mutexNbFantomes);
   pthread_cond_signal(&condNbFantomes);
 
