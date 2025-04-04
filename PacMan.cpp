@@ -43,7 +43,7 @@ typedef struct {
 S_CASE tab[NB_LIGNE][NB_COLONNE];
 
 
-pthread_t tidPacGom, tidPacMan = 0, tidScore, tidEvent, tidBonus, tidCompteurFantomes, tidVies, tidTimeOut = 0, tidFantomes[8] = { 0 }; // Note : tidEvent peut etre dans le main
+pthread_t tidPacGom, tidPacMan = 0, tidScore, tidEvent, tidBonus, tidCompteurFantomes, tidVies, tidTimeOut = 0, tidFantomes[8] = { 0 };
 pthread_mutex_t mutexTab, mutexDelai, mutexNbPacGom, mutexScore, mutexNbFantomes, mutexMode;
 pthread_cond_t condNbPacGom, condScore, condNbFantomes, condMode;
 pthread_key_t cle;
@@ -405,7 +405,7 @@ void* threadPacMan(void *pParam)
   sigaddset(&maskPacMan, SIGUSR2);
   sigprocmask(SIG_UNBLOCK, &maskPacMan, NULL);
 
-  // Armement des signaux SIGINT, SIGHUP, SIGUSR1 et SIUSR2
+  // Armement des signaux SIGINT, SIGHUP, SIGUSR1 et SIGUSR2
   struct sigaction sa;
   sa.sa_handler = handlerSignauxPacMan;
   sigemptyset(&sa.sa_mask);
@@ -431,7 +431,7 @@ void* threadPacMan(void *pParam)
     pthread_mutex_unlock(&mutexDelai);
 
     // Attend le temps du delai
-    sigprocmask(SIG_BLOCK, &maskPacMan, NULL); // Pour pas que le PacMan ne puisse etre derange
+    sigprocmask(SIG_BLOCK, &maskPacMan, NULL); // Pour que le PacMan ne puisse pas etre derange
     Attente(delaiLocal);
     sigprocmask(SIG_UNBLOCK, &maskPacMan, NULL);
 
