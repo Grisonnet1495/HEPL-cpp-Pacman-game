@@ -21,4 +21,4 @@ Please take in account that this is our first project using C for multi-threadin
 
 You are free to compile and modify this project for personal use as long as you credit the original developers.
 
-Developers: Grisonnet1495 and MaximeWeg31
+Developers: Grisonnet1495
